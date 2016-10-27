@@ -3,10 +3,19 @@
 #
 # Simple script to test sequential write access to filesystem
 #
+# The procedure:
 # * Creates a temporary file 
 # * Fills it with zeros and flushes the file
 # * Returns the number of
 #     MegaBytes/second (not MebiBytes/second) needed for filling + 2nd flushing
+#
+# You can perform a read benchark with commands like "sudo hdparm -Tt /dev/sda",
+# but it should be done on an idle system.
+#
+# Requires:
+# * bash
+# * bc
+# * time
 #
 # @author zoquero@gmail.com
 # @since  20161026
@@ -22,7 +31,7 @@ function usage() {
   echo "	blockSize : block size"
   echo "	-v        : increase verbosity (optional, must be last param)"
   echo ""
-  echo "Ex: $0 /tmp 20480 1024"
+  echo "Ex: $0 /tmp 10240 4096"
   exit 1
 }
 
@@ -75,9 +84,14 @@ fi
 #####################
 # Fill the tmp file #
 #####################
-# https://romanrm.net/dd-benchmark
-[[ "$verbose" ]] && echo "dd if=/dev/zero of=\"$tmpfile\" bs=$blockSize count=$blockNum conv=fsync"
-timeInSeconds=$(/usr/bin/time -f "%e" sh -c "dd if=/dev/zero of=\"$tmpfile\" bs=$blockSize count=$blockNum conv=fsync >/dev/null 2>&1" 2>&1)
+
+#
+# dd parms:
+# * conv=fsync    == write to disk data and metadata before exiting dd
+# * oflag=direct" == use direct I/O for data, avoid buffering
+#
+[[ "$verbose" ]] && echo "dd if=/dev/zero of=\"$tmpfile\" bs=$blockSize count=$blockNum conv=fsync oflag=direct"
+timeInSeconds=$(/usr/bin/time -f "%e" sh -c "dd if=/dev/zero of=\"$tmpfile\" bs=$blockSize count=$blockNum conv=fsync oflag=direct >/dev/null 2>&1" 2>&1)
 if [ $? -ne 0 ]; then
   echo "Couldn't fill the file"
   exit 3
