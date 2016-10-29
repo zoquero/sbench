@@ -15,11 +15,17 @@
 #include <sys/time.h>  // gettimeofday
 #include <unistd.h>    // getopt
 #include <ctype.h>     // isprint
+#include <getopt.h>    // getopt
+#include <features.h>  // errno
+#include <limits.h>    // LONG_MAX LONG_MIN
+#include <errno.h>     // errno
+
+enum type {CPU, MEM};
 
 void usage() {
-  printf("PENDENT DE DEFINIR EL usage\n");
-// (-v) -t cpu -p <times>
-// (-v) -t mem -p <times,sizeInBytes>
+  printf("Usage:\n");
+  printf("sbench (-v) -t cpu -p <times>\n");
+  printf("sbench (-v) -t mem -p <times,sizeInBytes>\n");
   exit(1);
 }
 
@@ -38,15 +44,91 @@ double timeval_diff(struct timeval *a, struct timeval *b) {
   return (double)(a->tv_sec + (double)a->tv_usec/1000000) - (double)(b->tv_sec + (double)b->tv_usec/1000000);
 }
 
-int main (int argc, char *argv[]) {
+unsigned long parseUL(char *str, char *valNameForErrors) {
+  unsigned long r;
+  char *endptr;
+  r = strtol(str, &endptr, 10);
+  if((errno == ERANGE && (r == LONG_MAX || r == LONG_MIN)) || (errno != 0 && r == 0)) {
+    fprintf(stderr, "Error parsing \"%s\". Probably value too long.\n", valNameForErrors);
+    usage();
+  }
+  if(endptr == str) {
+    fprintf(stderr, "No digits found parsing \"%s\"\n", valNameForErrors);
+    usage();
+  }
+  return r;
+}
 
+int parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes) {
+
+  char *strTmp1, *strTmp2;
+  if(thisType == CPU) {
+    if(strlen(params) > 19) {
+      fprintf(stderr, "\"times\" must fit in a long integer\n");
+      usage();
+    }
+    if(sscanf(params, "%lu", times) != 1) {
+      fprintf(stderr, "\"times\" must be an integer\n");
+      usage();
+    }
+    if(verbose)
+      printf("type=cpu, times=%lu verbose=%d\n", *times, verbose);
+  }
+  else if(thisType == MEM) {
+    strTmp1 = strtok(params, ",");
+    if(strTmp1 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+    if(strlen(params) < strlen(strTmp1)) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+    strTmp2 = strtok(NULL, ",");
+    if(strTmp2 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+printf("previ: %s , %s\n", strTmp1, strTmp2);
+
+    *times = parseUL(strTmp1, "times");
+/*
+    // printf("strTmp1=%s strTmp2=%s\n", strTmp1, strTmp2);
+    if(strlen(strTmp1) > 19) {
+      fprintf(stderr, "\"times\" must fit in an integer\n");
+      usage();
+    }
+    if(sscanf(strTmp1, "%lu", times) != 1) {
+      fprintf(stderr, "\"times\" must be an integer\n");
+      usage();
+    }
+*/
+
+/*
+    if(strlen(strTmp2) > 19) {
+      fprintf(stderr, "\"sizeInBytes\" must fit in an integer\n");
+      usage();
+    }
+*/
+    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
+
+    if(verbose)
+      printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
+  }
+  else {
+    fprintf(stderr, "Unknown o missing type\n");
+    usage();
+  }
+
+}
+
+int main (int argc, char *argv[]) {
   int  verbose = 0;
   int  type    = 0;
   char *params = 0;
 //  char *cvalue = NULL;
   int index;
   int c;
-  enum type {CPU, MEM};
   enum type thisType;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -68,7 +150,7 @@ int main (int argc, char *argv[]) {
           thisType = MEM;
         }
         else {
-          fprintf(stderr, "Unknown type\n");
+          fprintf(stderr, "Unknown type '%s'\n", optarg);
           usage();
         }
         break;
@@ -95,88 +177,9 @@ int main (int argc, char *argv[]) {
         usage();
       }
 
-  if(thisType == CPU) {
-    if(strlen(params) > 19) {
-      fprintf(stderr, "\"times\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(params, "%lu", &times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-  }
-  else if(thisType == MEM) {
-    char *strTmp1, *strTmp2;
-/*
-    if(sscanf(params, "%s,%s", strTmp1, strTmp2) != 1) {
-      fprintf(stderr, "Param must be \"times,sizeInBytes\"\n");
-      usage();
-    }
-printf("%s , %s\n", strTmp1, strTmp2);
-
-    if(strlen(strTmp1) > 19) {
-      fprintf(stderr, "\"times\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(strTmp1, "%lu", &times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-
-    if(strlen(strTmp2) > 19) {
-      fprintf(stderr, "\"sizeInBytes\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(strTmp2, "%lu", &sizeInBytes) != 1) {
-      fprintf(stderr, "\"sizeInBytes\" must be an integer\n");
-      usage();
-    }
-*/
-
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
-    }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
-    }
-
-printf("strTmp1=%s strTmp2=%s\n", strTmp1, strTmp2);
-
-    if(strlen(strTmp1) > 19) {
-      fprintf(stderr, "\"times\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(strTmp1, "%lu", &times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-
-    if(strlen(strTmp2) > 19) {
-      fprintf(stderr, "\"sizeInBytes\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(strTmp2, "%lu", &sizeInBytes) != 1) {
-      fprintf(stderr, "\"sizeInBytes\" must be an integer\n");
-      usage();
-    }
-
-printf("times=%lu sizeInBytes=%lu\n", times, sizeInBytes);
-  }
-  else {
-  }
-
-  if(verbose)
-    printf("type=%d params=%s verbose=%d\n", thisType, params, verbose);
-
+  parseParams(params, thisType, verbose, &times, &sizeInBytes);
 }
+
 
 int mainMem (int argc, char *argv[]) {
   char *cptr;
