@@ -19,6 +19,7 @@
 #include <features.h>  // errno
 #include <limits.h>    // LONG_MAX LONG_MIN
 #include <errno.h>     // errno
+#include <math.h>      // pow
 
 enum type {CPU, MEM};
 
@@ -89,27 +90,8 @@ int parseParams(char *params, enum type thisType, int verbose, unsigned long *ti
       fprintf(stderr, "Params must be in \"num,num\" format\n");
       usage();
     }
-printf("previ: %s , %s\n", strTmp1, strTmp2);
 
-    *times = parseUL(strTmp1, "times");
-/*
-    // printf("strTmp1=%s strTmp2=%s\n", strTmp1, strTmp2);
-    if(strlen(strTmp1) > 19) {
-      fprintf(stderr, "\"times\" must fit in an integer\n");
-      usage();
-    }
-    if(sscanf(strTmp1, "%lu", times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-*/
-
-/*
-    if(strlen(strTmp2) > 19) {
-      fprintf(stderr, "\"sizeInBytes\" must fit in an integer\n");
-      usage();
-    }
-*/
+    *times       = parseUL(strTmp1, "times");
     *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
 
     if(verbose)
@@ -122,21 +104,19 @@ printf("previ: %s , %s\n", strTmp1, strTmp2);
 
 }
 
-int main (int argc, char *argv[]) {
-  int  verbose = 0;
-  int  type    = 0;
-  char *params = 0;
-//  char *cvalue = NULL;
-  int index;
+
+int getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose) {
   int c;
-  enum type thisType;
   extern char *optarg;
   extern int optind, opterr, optopt;
-  unsigned long sizeInBytes, times;
-
   opterr = 0;
 
-  while ((c = getopt (argc, argv, "t:p:v")) != -1)
+  if(argc < 5) {
+    fprintf(stderr, "Missing parameters\n");
+    usage();
+  }
+
+  while ((c = getopt (argc, argv, "t:p:v")) != -1) {
     switch (c) {
       case 't':
         if(optarg == NULL) {
@@ -144,10 +124,10 @@ int main (int argc, char *argv[]) {
           usage();
         }
         if(strcmp(optarg, "cpu") == 0) {
-          thisType = CPU;
+          *thisType = CPU;
         }
         else if(strcmp(optarg, "mem") == 0) {
-          thisType = MEM;
+          *thisType = MEM;
         }
         else {
           fprintf(stderr, "Unknown type '%s'\n", optarg);
@@ -155,14 +135,14 @@ int main (int argc, char *argv[]) {
         }
         break;
       case 'p':
-        params = optarg;
-        if(params == NULL) {
+        *params = optarg;
+        if(*params == NULL) {
           fprintf (stderr, "Option -%c requires an argument\n", c);
           usage();
         }
         break;
       case 'v':
-        verbose = 1;
+        *verbose = 1;
         break;
       case '?':
         if (optopt == 'p')
@@ -175,9 +155,76 @@ int main (int argc, char *argv[]) {
       default:
         fprintf (stderr, "Error in command line parameters\n");
         usage();
-      }
+    }
+  }
+}
 
+int main (int argc, char *argv[]) {
+  int  verbose = 0;
+  int  type    = 0;
+  char *params = 0;
+  enum type thisType;
+  unsigned long sizeInBytes, times;
+  struct timeval beginning, end, before, after;
+  double delta;
+  char *cptr;
+  char msg[100];
+ 
+  getOpts(argc, argv, &params, &thisType, &verbose);
   parseParams(params, thisType, verbose, &times, &sizeInBytes);
+  if(thisType == CPU) {
+    if(verbose) printf("CPU test:\n");
+
+    gettimeofday(&beginning, NULL);
+    double x=2;
+    for(long int i = 0; i < times; i++) {
+      x=pow(x, x);
+      x=pow(x, 1/(x-1));
+    }
+    gettimeofday(&end, NULL);
+    delta=timeval_diff(&end, &beginning);
+    printf("%f s\n", delta);
+  
+  }
+  if(thisType == MEM) {
+
+    gettimeofday(&beginning, NULL);
+    for(int i = 0; i < times; i++) {
+      /* Just VmSize, isn't VmRSS */
+      /* It takes longer on first time. */
+      gettimeofday(&before, NULL);
+      cptr = (char *) malloc(sizeInBytes);
+      if(cptr == NULL) {
+        sprintf(msg, "Can't allocate %lu bytes on memory", sizeInBytes);
+        myAbort(msg);
+      }
+      gettimeofday(&after, NULL);
+      delta=timeval_diff(&after, &before);
+      if(verbose) printf("malloc : %f\n", delta);
+     
+      /* VmRSS ! */
+      gettimeofday(&before, NULL);
+      if(memset(cptr, 0xA5, sizeInBytes) == NULL) {
+        sprintf(msg, "Can't memset on those %lu bytes on memory", sizeInBytes);
+        myAbort(msg);
+      }
+      gettimeofday(&after, NULL);
+      delta=timeval_diff(&after, &before);
+      if(verbose) printf("memset : %f\n", delta);
+    
+      gettimeofday(&before, NULL);
+      free(cptr);
+      gettimeofday(&after, NULL);
+      delta=timeval_diff(&after, &before);
+      if(verbose) printf("free   : %f\n", delta);
+      //getchar();
+    }
+    gettimeofday(&end, NULL);
+    delta=timeval_diff(&end, &beginning);
+    printf("%f s\n", delta);
+
+  }
+  return 0;
 }
 
 
@@ -255,6 +302,7 @@ int mainMem (int argc, char *argv[]) {
   return 0;
 }
 
+/*
 int mainCpu (int argc, char *argv[]) {
   unsigned long times;
   struct timeval beginning, end;
@@ -286,3 +334,4 @@ int mainCpu (int argc, char *argv[]) {
 
   return 0;
 }
+*/
