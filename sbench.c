@@ -20,18 +20,25 @@
 #include <limits.h>    // LONG_MAX LONG_MIN
 #include <errno.h>     // errno
 #include <math.h>      // pow
+#include <sys/types.h> // stat
+#include <sys/stat.h>  // stat
+#include <fcntl.h>     // open
 
-enum type {CPU, MEM};
+
+enum type {CPU, MEM, DISK_W};
 
 void usage() {
   printf("Usage:\n");
   printf("sbench (-v) -t cpu -p <times>\n");
   printf("sbench (-v) -t mem -p <times,sizeInBytes>\n");
+  printf("sbench (-v) -t disk_w -p <times,sizeInBytes,folderName>\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
   printf("* To do silly calculus (2 pows) 100E6 times (it takes ~6E6/s):\n");
   printf("  sbench -t cpu -p 100000000\n");
+  printf("* To write 100 MiB in 4k blocks:\n");
+  printf("  sbench -t disk_w -p 25600,4096,/tmp/_sbench.d\n");
   exit(1);
 }
 
@@ -65,8 +72,8 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-int parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes) {
-  char *strTmp1, *strTmp2;
+int parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName) {
+  char *strTmp1, *strTmp2, *strTmp3;
   if(thisType == CPU) {
     if(strlen(params) > 19) {
       fprintf(stderr, "\"times\" must fit in a long integer\n");
@@ -101,6 +108,34 @@ int parseParams(char *params, enum type thisType, int verbose, unsigned long *ti
     if(verbose)
       printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
   }
+  else if(thisType == DISK_W) {
+    strTmp1 = strtok(params, ",");
+    if(strTmp1 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
+      usage();
+    }
+    if(strlen(params) < strlen(strTmp1)) {
+      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
+      usage();
+    }
+    strTmp2 = strtok(NULL, ",");
+    if(strTmp2 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
+      usage();
+    }
+    strTmp3 = strtok(NULL, ",");
+    if(strTmp3 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
+      usage();
+    }
+
+    *times       = parseUL(strTmp1, "times");
+    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
+    strcpy(folderName, strTmp3);
+
+    if(verbose)
+      printf("type=mem, times=%lu, sizeInBytes=%lu, folderName=%s verbose=%d\n", *times, *sizeInBytes, folderName, verbose);
+  }
   else {
     fprintf(stderr, "Unknown o missing type\n");
     usage();
@@ -132,6 +167,9 @@ int getOpts(int argc, char **argv, char **params, enum type *thisType, int *verb
         }
         else if(strcmp(optarg, "mem") == 0) {
           *thisType = MEM;
+        }
+        else if(strcmp(optarg, "disk_w") == 0) {
+          *thisType = DISK_W;
         }
         else {
           fprintf(stderr, "Unknown type '%s'\n", optarg);
@@ -180,7 +218,6 @@ double doCpuTest(unsigned long times, int verbose) {
   return delta;
 }
 
-
 double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
   char msg[100];
   char *cptr;
@@ -224,131 +261,100 @@ double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
   return delta;
 }
 
+
+double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *folderName, int verbose) {
+  char msg[100];
+  char *cptr;
+  struct timeval beginning, end, before, after;
+  double delta;
+  int  fd;
+  char fileName[PATH_MAX];
+  char *buffer;
+
+  // The folder must pre-exist
+  struct stat s = {0};
+  if(stat(folderName, &s) != 0 || ! (s.st_mode & S_IFDIR))  {
+    sprintf(msg, "%s must exist previously and must be a folder\n", folderName);
+    myAbort(msg);
+  }
+
+  // The file cannot pre-exist (we won't overwrite!)
+  sprintf((char *) fileName, "%s/disk_w.out", folderName);
+  if(access(fileName, F_OK) != -1 ) {
+    sprintf(msg, "Target file %s cannot exist previously\n", fileName);
+    myAbort(msg);
+  }
+
+  // Allocate RAM for the bloc of sizeInBytes bytes
+  buffer=malloc(sizeInBytes);
+  if(buffer == NULL) {
+    sprintf(msg, "Can't allocate a buffer for storing %lu bytes\n", sizeInBytes);
+    myAbort(msg);
+  }
+  if(memset(buffer, 0xA5, sizeInBytes) == NULL) {
+    sprintf(msg, "Can't memset on those %lu bytes on memory", sizeInBytes);
+    myAbort(msg);
+  }
+
+  printf("Testing on %s\n", fileName);
+  // open
+  fd = open("file", O_CREAT | O_WRONLY);
+  if(fd == -1) {
+    sprintf(msg, "Can't open the target file %s for writing\n", fileName);
+    myAbort(msg);
+  }
+  // loop for writing and storing (fflush+msync)
+  gettimeofday(&beginning, NULL);
+printf("iterem\n");
+  for(unsigned long i = 0; i < times; i++) {
+printf("i=%lu\n", i);
+    write(fd, buffer, sizeInBytes);
+  }
+  gettimeofday(&end, NULL);
+  delta=timeval_diff(&end, &beginning);
+  // close
+  if(close(fd) == -1) {
+    sprintf(msg, "Can't close the target file %s\n", fileName);
+    myAbort(msg);
+  }
+
+  // delete the file
+  if(remove(fileName) != 0) {
+    sprintf(msg, "Can't delete the target file %s after the test\n", fileName);
+    myAbort(msg);
+  }
+
+  // let's free the buffer
+  free(buffer);
+
+  return delta;
+}
+
 int main (int argc, char *argv[]) {
   int  verbose = 0;
   int  type    = 0;
   char *params = 0;
   enum type thisType;
   unsigned long sizeInBytes, times;
+  char folderName[PATH_MAX-12];
  
   getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes,  folderName);
   if(thisType == CPU) {
     double r = doCpuTest(times, verbose);
     printf("%f s\n", r);
   }
-  if(thisType == MEM) {
+  else if(thisType == MEM) {
     double r = doMemTest(sizeInBytes, times, verbose);
     printf("%f s\n", r);
   }
+  else if(thisType == DISK_W) {
+    double r = doDiskWriteTest(sizeInBytes, times, folderName, verbose);
+    printf("%f s\n", r);
+  }
+  else {
+    myAbort(/* bug */ "Unknown type");
+  }
   return 0;
 }
 
-
-int mainMem (int argc, char *argv[]) {
-  char *cptr;
-  char msg[100];
-  short verbose = 0;
-  unsigned int memSizeInBytes;
-  unsigned int times;
-  struct timeval before, after;
-  struct timeval beginning, end;
-  double delta;
- 
-  if(argc != 3 && argc != 4) {
-    sprintf(msg, "Usage: memset <memSizeInBytes> <times> (-v)");
-    myAbort(msg);
-  }
-
-  if(sscanf(argv[1], "%du", &memSizeInBytes) != 1) {
-    sprintf(msg, "Usage: memset <memSizeInBytes> <times> (-v)  # (memSizeInBytes must be an integer)");
-    myAbort(msg);
-  }
-  if(memSizeInBytes >= 2147483648) {
-    sprintf(msg, "Usage: memset <memSizeInBytes> <times> (-v)  # (memSizeInBytes must be less than 2^31)");
-    myAbort(msg);
-  }
-
-  if(sscanf(argv[2], "%du", &times) != 1) {
-    sprintf(msg, "Usage: memset <memSizeInBytes> <times> (-v)  # (times must be an integer)");
-    myAbort(msg);
-  }
-  if(memSizeInBytes >= 2147483648) {
-    sprintf(msg, "Usage: memset <memSizeInBytes> <times> (-v)  # (times must be less than 2^31)");
-    myAbort(msg);
-  }
-  if(argc == 4 && argv[3] != NULL && strlen(argv[3]) == 2 && strncmp(argv[3], "-v", 2) == 0) {
-    verbose = 1;
-  }
-
-  gettimeofday(&beginning, NULL);
-  for(int i = 0; i < times; i++) {
-    /* Just VmSize, isn't VmRSS */
-    /* It takes longer on first time. */
-    gettimeofday(&before, NULL);
-    cptr = (char *) malloc(memSizeInBytes);
-    if(cptr == NULL) {
-      sprintf(msg, "Can't allocate %d bytes on memory", memSizeInBytes);
-      myAbort(msg);
-    }
-    gettimeofday(&after, NULL);
-    delta=timeval_diff(&after, &before);
-    if(verbose) printf("malloc : %f\n", delta);
-   
-    /* VmRSS ! */
-    gettimeofday(&before, NULL);
-    if(memset(cptr, 0xA5, memSizeInBytes) == NULL) {
-      sprintf(msg, "Can't memset on those %d bytes on memory", memSizeInBytes);
-      myAbort(msg);
-    }
-    gettimeofday(&after, NULL);
-    delta=timeval_diff(&after, &before);
-    if(verbose) printf("memset : %f\n", delta);
-  
-    gettimeofday(&before, NULL);
-    free(cptr);
-    gettimeofday(&after, NULL);
-    delta=timeval_diff(&after, &before);
-    if(verbose) printf("free   : %f\n", delta);
-    //getchar();
-  }
-  gettimeofday(&end, NULL);
-  delta=timeval_diff(&end, &beginning);
-  printf("%f s\n", delta);
-
-  return 0;
-}
-
-/*
-int mainCpu (int argc, char *argv[]) {
-  unsigned long times;
-  struct timeval beginning, end;
-  char msg[100];
-  double delta;
- 
-  if(argc != 2) {
-    sprintf(msg, "Usage: cpubound <times>");
-    myAbort(msg);
-  }
-  if(argv[1] == NULL || strlen(argv[1]) > 19) {
-    sprintf(msg, "Usage: cpubound <times>  # (times must fit in a long integer)");
-    myAbort(msg);
-  }
-  if(sscanf(argv[1], "%lu", &times) != 1) {
-    sprintf(msg, "Usage: cpubound <times>  # (times must be an integer)");
-    myAbort(msg);
-  }
-
-  gettimeofday(&beginning, NULL);
-  double x=2;
-  for(long int i = 0; i < times; i++) {
-    x*=x;
-    x/=(x-1);
-  }
-  gettimeofday(&end, NULL);
-  delta=timeval_diff(&end, &beginning);
-  printf("%f s\n", delta);
-
-  return 0;
-}
-*/
