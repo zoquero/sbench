@@ -27,6 +27,11 @@ void usage() {
   printf("Usage:\n");
   printf("sbench (-v) -t cpu -p <times>\n");
   printf("sbench (-v) -t mem -p <times,sizeInBytes>\n");
+  printf("\nExamples:\n");
+  printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
+  printf("  sbench -t mem -p 10,104857600\n");
+  printf("* To do silly calculus (2 pows) 100E6 times (it takes ~6E6/s):\n");
+  printf("  sbench -t cpu -p 100000000\n");
   exit(1);
 }
 
@@ -61,7 +66,6 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
 }
 
 int parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes) {
-
   char *strTmp1, *strTmp2;
   if(thisType == CPU) {
     if(strlen(params) > 19) {
@@ -159,70 +163,83 @@ int getOpts(int argc, char **argv, char **params, enum type *thisType, int *verb
   }
 }
 
+double doCpuTest(unsigned long times, int verbose) {
+  struct timeval beginning, end, before, after;
+  double delta;
+
+  if(verbose) printf("CPU test:\n");
+
+  gettimeofday(&beginning, NULL);
+  double x=2;
+  for(long int i = 0; i < times; i++) {
+    x=pow(x, x);
+    x=pow(x, 1/(x-1));
+  }
+  gettimeofday(&end, NULL);
+  delta=timeval_diff(&end, &beginning);
+  return delta;
+}
+
+
+double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
+  char msg[100];
+  char *cptr;
+  struct timeval beginning, end, before, after;
+  double delta;
+
+  gettimeofday(&beginning, NULL);
+  for(int i = 0; i < times; i++) {
+    /* Just VmSize, isn't VmRSS */
+    /* It takes longer on first time. */
+    gettimeofday(&before, NULL);
+    cptr = (char *) malloc(sizeInBytes);
+    if(cptr == NULL) {
+      sprintf(msg, "Can't allocate %lu bytes on memory", sizeInBytes);
+      myAbort(msg);
+    }
+    gettimeofday(&after, NULL);
+    delta=timeval_diff(&after, &before);
+    if(verbose) printf("malloc : %f\n", delta);
+   
+    /* VmRSS ! */
+    gettimeofday(&before, NULL);
+    if(memset(cptr, 0xA5, sizeInBytes) == NULL) {
+      sprintf(msg, "Can't memset on those %lu bytes on memory", sizeInBytes);
+      myAbort(msg);
+    }
+    gettimeofday(&after, NULL);
+    delta=timeval_diff(&after, &before);
+    if(verbose) printf("memset : %f\n", delta);
+  
+    gettimeofday(&before, NULL);
+    free(cptr);
+    gettimeofday(&after, NULL);
+    delta=timeval_diff(&after, &before);
+    if(verbose) printf("free   : %f\n", delta);
+    //getchar();
+  }
+  gettimeofday(&end, NULL);
+  delta=timeval_diff(&end, &beginning);
+
+  return delta;
+}
+
 int main (int argc, char *argv[]) {
   int  verbose = 0;
   int  type    = 0;
   char *params = 0;
   enum type thisType;
   unsigned long sizeInBytes, times;
-  struct timeval beginning, end, before, after;
-  double delta;
-  char *cptr;
-  char msg[100];
  
   getOpts(argc, argv, &params, &thisType, &verbose);
   parseParams(params, thisType, verbose, &times, &sizeInBytes);
   if(thisType == CPU) {
-    if(verbose) printf("CPU test:\n");
-
-    gettimeofday(&beginning, NULL);
-    double x=2;
-    for(long int i = 0; i < times; i++) {
-      x=pow(x, x);
-      x=pow(x, 1/(x-1));
-    }
-    gettimeofday(&end, NULL);
-    delta=timeval_diff(&end, &beginning);
-    printf("%f s\n", delta);
-  
+    double r = doCpuTest(times, verbose);
+    printf("%f s\n", r);
   }
   if(thisType == MEM) {
-
-    gettimeofday(&beginning, NULL);
-    for(int i = 0; i < times; i++) {
-      /* Just VmSize, isn't VmRSS */
-      /* It takes longer on first time. */
-      gettimeofday(&before, NULL);
-      cptr = (char *) malloc(sizeInBytes);
-      if(cptr == NULL) {
-        sprintf(msg, "Can't allocate %lu bytes on memory", sizeInBytes);
-        myAbort(msg);
-      }
-      gettimeofday(&after, NULL);
-      delta=timeval_diff(&after, &before);
-      if(verbose) printf("malloc : %f\n", delta);
-     
-      /* VmRSS ! */
-      gettimeofday(&before, NULL);
-      if(memset(cptr, 0xA5, sizeInBytes) == NULL) {
-        sprintf(msg, "Can't memset on those %lu bytes on memory", sizeInBytes);
-        myAbort(msg);
-      }
-      gettimeofday(&after, NULL);
-      delta=timeval_diff(&after, &before);
-      if(verbose) printf("memset : %f\n", delta);
-    
-      gettimeofday(&before, NULL);
-      free(cptr);
-      gettimeofday(&after, NULL);
-      delta=timeval_diff(&after, &before);
-      if(verbose) printf("free   : %f\n", delta);
-      //getchar();
-    }
-    gettimeofday(&end, NULL);
-    delta=timeval_diff(&end, &beginning);
-    printf("%f s\n", delta);
-
+    double r = doMemTest(sizeInBytes, times, verbose);
+    printf("%f s\n", r);
   }
   return 0;
 }
