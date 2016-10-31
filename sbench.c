@@ -32,6 +32,8 @@
 #include <fcntl.h>        // open
 #include <curl/curl.h>    // libcurl
 
+#define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
+
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 
 void usage() {
@@ -42,7 +44,7 @@ void usage() {
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
-  printf("sbench (-v) -t http_get   -p <url>\n");
+  printf("sbench (-v) -t http_get   -p <timeoutInMS,httpRef,url>\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
@@ -54,8 +56,10 @@ void usage() {
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,/tmp/_sbench.testfile\n");
-  printf("* To download by HTTP GET http://www.test.com/file :\n");
-  printf("  sbench -t http_get -p http://www.test.com/file\n");
+  printf("* To download by HTTP GET http://www.test.com/file ,\n");
+  printf("     with a timeout of 2s and to compare it with the reference:\n");
+  printf("     file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
+  printf("  sbench -t http_get -p 2000,my_ref_file,http://www.test.com/file\n");
   printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
   exit(1);
 }
@@ -90,7 +94,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url) {
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS) {
   char *strTmp1, *strTmp2, *strTmp3;
   if(thisType == CPU) {
     if(strlen(params) > 19) {
@@ -189,47 +193,32 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     }
   }
   else if(thisType == HTTP_GET) {
-
-    strcpy(url, params);
-
-/*
-url , timeout 
-
-    if(strlen(params) > 19) {
-      fprintf(stderr, "\"times\" must fit in a long integer\n");
-      usage();
-    }
-    if(sscanf(params, "%lu", times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-    if(verbose)
-      printf("type=cpu, times=%lu verbose=%d\n", *times, verbose);
-*/
-
-
-/*
     strTmp1 = strtok(params, ",");
     if(strTmp1 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
       usage();
     }
     if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
       usage();
     }
     strTmp2 = strtok(NULL, ",");
     if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
+      usage();
+    }
+    strTmp3 = strtok(NULL, ",");
+    if(strTmp3 == NULL) {
+      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
       usage();
     }
 
-    *times       = parseUL(strTmp1, "times");
-    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
+    *timeoutInMS = parseUL(strTmp1, "timeoutInMS");
+    strcpy(httpRefFileBasename, strTmp2);
+    strcpy(url, strTmp3);
 
     if(verbose)
-      printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
-*/
+      printf("type=http_get, timeoutInMS=%lu, httpRefFileBasename=%s, url=%s, verbose=%d\n", *timeoutInMS, httpRefFileBasename, url, verbose);
   }
   else {
     fprintf(stderr, "Unknown o missing type\n");
@@ -535,11 +524,58 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
 }
 
 
-int httpGet(char *url /*, unsigned int expectedSize*/ ) {
+size_t writeToFile(void *ptr, size_t size, size_t nmemb, FILE *stream) {
+    size_t written = fwrite(ptr, size, nmemb, stream);
+    return written;
+}
+
+
+/**
+  * Compare two files
+  * 
+  * @arg FILE* stream open to first file
+  * @arg FILE* stream open to second file
+  * @return int 0 if are equal, 1 if are different
+  */
+int compare(FILE *fp1, FILE *fp2) {
+  char c1, c2;
+  int areDifferent = 0; // 0 ok, 1 differences found
+
+printf("Comparing files\n");
+  while (((c1 = fgetc(fp1)) != EOF) &&((c2 = fgetc(fp2)) != EOF)) {
+    /* character by character comparision until end of file */
+printf("Comparing %c == %c\n", c1, c2);
+    if (c1 == c2)
+      continue;
+    /*
+      * If not equal then returns the byte position
+      */
+    else {
+      areDifferent = 1;
+      break;
+    }
+  }
+printf("files compared\n");
+  return areDifferent;
+}
+
+
+/**
+  * https://curl.haxx.se/libcurl/c/
+  */
+int httpGet(char *url, char *httpRefFileBasename, unsigned long timeoutInMS, int *different) {
   CURL *curl;
   CURLcode res;
   char msg[100];
+  int  fd;
+  FILE *fds;
+  FILE *refFileStream;
+  char fileNameTemplate[PATH_MAX];
+  char refFilePath[PATH_MAX];
+  struct timeval beginning, end;
+  double delta;
 
+  // get TMPDIR
   char const *tmpfolder = getenv("TMPDIR");
   if (tmpfolder == 0) {
     tmpfolder = getenv("TMP");
@@ -555,50 +591,114 @@ int httpGet(char *url /*, unsigned int expectedSize*/ ) {
     }
   }
 
-printf("abans\n");
-char name[] = "/tmp/asdf.XXXXXXX";
-printf("abans name =%s\n", name);
-int f= mkstemp(name);
-printf("despres name =%s\n", name);
-exit(0);
-
   // get temporary file
-  int fd;
-  char fileNameTemplate[PATH_MAX];
   sprintf(fileNameTemplate, "%s/_sbench.libcurl.XXXXXX", tmpfolder);
-  printf("tempname = %s\n", tempnam(tmpfolder, "asdf.XXXXXX"));
+  fd = mkstemp(fileNameTemplate);
+  printf("Using temporary file %s\n", fileNameTemplate);
 
-printf("Temporary filename = %s\n", fileNameTemplate);
+  // get a stream from the file descriptor
+  fds = fdopen(fd, "w");
+  if(fds == NULL) {
+    sprintf(msg, "Can't re-open (r) the stream of the output of libcurl %s", fileNameTemplate);
+    myAbort(msg);
+  }
 
-// http://stackoverflow.com/questions/1636333/download-file-using-libcurl-in-c-c
+  // get the reference file
+  sprintf(refFilePath, "%s/%s", CURL_REFS_FOLDER, httpRefFileBasename);
+  printf("Using refFilePath=%s\n", refFilePath);
+
+  // http://stackoverflow.com/questions/1636333/download-file-using-libcurl-in-c-c
  
   curl = curl_easy_init();
+
+  // set timeout
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutInMS);
+
+  /*
+   * PENDING: proxy settings
+   * anyway libcurl uses the environment variables like http_proxy
+  curl_easy_setopt(curl, CURLOPT_PROXY, "proxy-host.com:8080"); 
+  curl_easy_setopt(curl, CURLOPT_PROXYUSERPWD, "username:password"); 
+   *
+  */
+
   if(curl) {
+    // Set the url
     curl_easy_setopt(curl, CURLOPT_URL, url);
+
     // Skip follow redirection, we need a fast final HTTP GET
     // curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeToFile);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, fds);
  
     // Perform the request, res will get the return code
+    gettimeofday(&beginning, NULL);
     res = curl_easy_perform(curl);
+    gettimeofday(&end, NULL);
+    delta=timeval_diff(&end, &beginning);
+
     // Check for errors
     if(res != CURLE_OK) {
       sprintf(msg, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
       myAbort(msg);
     }
- 
-    /* always cleanup */ 
+
+PENDING CORRECT TIMEOUT: http://stackoverflow.com/questions/10486119/libcurl-c-timeout-and-success-transfer
+
+    /* cleanup libcurl stuff */ 
     curl_easy_cleanup(curl);
 
-    // remove temporary file
-
-/*
-    if(remove(fileNameTemplate) != 0) {
-      sprintf(msg, "Can't delete the target file %s after the test", fileName);
+    // Compare with the reference
+    refFileStream = fopen(refFilePath, "r");
+    if(refFileStream == NULL) {
+      fclose(fds); // let's try to close blindly
+      sprintf(msg, "Can't open the reference file %s", refFilePath);
       myAbort(msg);
     }
-*/
+
+    /*
+     * Let's reopen libcurl's output just to compare with the reference:
+     * Don't know why rewinding the stream doesn't work.
+     */
+
+    // close the file stream fed by libcurl
+    if(fclose(fds) != 0) {
+      sprintf(msg, "Can't close (w) the stream of the output of libcurl %s", fileNameTemplate);
+      myAbort(msg);
+    }
+
+    // reopen the file stream previously fed by libcurl
+    fds = fopen(fileNameTemplate, "r");
+    if(fds == NULL) {
+      sprintf(msg, "Can't re-open (r) the stream of the output of libcurl %s", fileNameTemplate);
+      myAbort(msg);
+    }
+
+    // compare both files
+    *different = compare(refFileStream, fds);
+
+    // Close the file streams
+    if(fclose(fds) != 0) {
+      sprintf(msg, "Can't close (r) the stream of the output of libcurl %s", fileNameTemplate);
+      myAbort(msg);
+    }
+    if(fclose(refFileStream) != 0) {
+      sprintf(msg, "Can't close the stream of the reference file %s", refFilePath);
+      myAbort(msg);
+    }
+
+    // remove the temporary file
+    if(remove(fileNameTemplate) != 0) {
+      sprintf(msg, "Can't delete the target file %s after the test", fileNameTemplate);
+      myAbort(msg);
+    }
   }
-  return 0;
+  else {
+    sprintf(msg, "Can't get a libcurl handler for %s", url);
+    myAbort(msg);
+  }
+  return delta;
 }
 
 
@@ -610,33 +710,47 @@ int main (int argc, char *argv[]) {
   char folderName[PATH_MAX-12];
   char targetFileName[PATH_MAX];
   char url[CURLINFO_EFFECTIVE_URL];
- 
+  char httpRefFileBasename[PATH_MAX];
+  unsigned long timeoutInMS;
+  int different = 1;
+  double r;
+
   getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS);
   if(thisType == CPU) {
-    double r = doCpuTest(times, verbose);
+    r = doCpuTest(times, verbose);
     printf("%f s\n", r);
+    exit(0);
   }
   else if(thisType == MEM) {
-    double r = doMemTest(sizeInBytes, times, verbose);
+    r = doMemTest(sizeInBytes, times, verbose);
     printf("%f s\n", r);
+    exit(0);
   }
   else if(thisType == DISK_W) {
-    double r = doDiskWriteTest(sizeInBytes, times, folderName, verbose);
+    r = doDiskWriteTest(sizeInBytes, times, folderName, verbose);
     printf("%f s\n", r);
+    exit(0);
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
-    double r = doDiskReadTest(thisType, sizeInBytes, times, targetFileName, verbose);
+    r = doDiskReadTest(thisType, sizeInBytes, times, targetFileName, verbose);
     printf("%f s\n", r);
+    exit(0);
   }
   else if(thisType == HTTP_GET) {
     printf("http get url %s\n", url);
-    httpGet(url);
-//    printf("%f s\n", r);
+    r = httpGet(url, httpRefFileBasename, timeoutInMS, &different);
+    if(different) {
+      printf("Different: %f s\n", r);
+      exit(2);
+    }
+    else {
+      printf("Equal:     %f s\n", r);
+      exit(0);
+    }
   }
   else {
     myAbort(/* bug */ "Unknown type");
+    exit(2);
   }
-  return 0;
 }
-
