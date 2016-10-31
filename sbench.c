@@ -1,12 +1,13 @@
 /*
  * Simple Benchmarks
  * 
- * * Mem: Shows the time it takes to allocate, commit and free memory.
+ * * MEM: Shows the time it takes to allocate, commit and free memory.
  * * CPU: Shows the time it takes to perform some silly floating point calculus.
  *        It uses 100% of one CPU.
  * * DISK_W: Shows the time it takes to write chunks on a file
  * * DISK_R_SEQ: Shows the time it takes to read sequentially chunks from a file
  * * DISK_R_RAN: Shows the time it takes to random read chunks from a file
+ * * HTTP_GET: Shows the time it takes to HTTP GET a file
  * 
  * Sources: https://github.com/zoquero/simplebenchmark/
  * 
@@ -29,17 +30,19 @@
 #include <sys/types.h>    // stat
 #include <sys/stat.h>     // stat
 #include <fcntl.h>        // open
+#include <curl/curl.h>    // libcurl
 
-enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN};
+enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 
 void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
   printf("Usage:\n");
-  printf("sbench (-v) -t cpu -p <times>\n");
-  printf("sbench (-v) -t mem -p <times,sizeInBytes>\n");
-  printf("sbench (-v) -t disk_w -p <times,sizeInBytes,folderName>\n");
+  printf("sbench (-v) -t cpu        -p <times>\n");
+  printf("sbench (-v) -t mem        -p <times,sizeInBytes>\n");
+  printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
+  printf("sbench (-v) -t http_get   -p <url>\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
@@ -51,6 +54,8 @@ void usage() {
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,/tmp/_sbench.testfile\n");
+  printf("* To download by HTTP GET http://www.test.com/file :\n");
+  printf("  sbench -t http_get -p http://www.test.com/file\n");
   printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
   exit(1);
 }
@@ -85,7 +90,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName) {
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url) {
   char *strTmp1, *strTmp2, *strTmp3;
   if(thisType == CPU) {
     if(strlen(params) > 19) {
@@ -183,6 +188,49 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
   }
+  else if(thisType == HTTP_GET) {
+
+    strcpy(url, params);
+
+/*
+url , timeout 
+
+    if(strlen(params) > 19) {
+      fprintf(stderr, "\"times\" must fit in a long integer\n");
+      usage();
+    }
+    if(sscanf(params, "%lu", times) != 1) {
+      fprintf(stderr, "\"times\" must be an integer\n");
+      usage();
+    }
+    if(verbose)
+      printf("type=cpu, times=%lu verbose=%d\n", *times, verbose);
+*/
+
+
+/*
+    strTmp1 = strtok(params, ",");
+    if(strTmp1 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+    if(strlen(params) < strlen(strTmp1)) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+    strTmp2 = strtok(NULL, ",");
+    if(strTmp2 == NULL) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
+      usage();
+    }
+
+    *times       = parseUL(strTmp1, "times");
+    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
+
+    if(verbose)
+      printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
+*/
+  }
   else {
     fprintf(stderr, "Unknown o missing type\n");
     usage();
@@ -222,6 +270,9 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
         }
         else if(strcmp(optarg, "disk_r_ran") == 0) {
           *thisType = DISK_R_RAN;
+        }
+        else if(strcmp(optarg, "http_get") == 0) {
+          *thisType = HTTP_GET;
         }
         else {
           fprintf(stderr, "Unknown type '%s'\n", optarg);
@@ -484,6 +535,72 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
 }
 
 
+int httpGet(char *url /*, unsigned int expectedSize*/ ) {
+  CURL *curl;
+  CURLcode res;
+  char msg[100];
+
+  char const *tmpfolder = getenv("TMPDIR");
+  if (tmpfolder == 0) {
+    tmpfolder = getenv("TMP");
+    if (tmpfolder == 0) {
+      tmpfolder = getenv("TEMP");
+      if (tmpfolder == 0) {
+        tmpfolder = getenv("TEMPDIR");
+        if (tmpfolder == 0) {
+          // last chance, /tmp hardcoded
+          tmpfolder = "/tmp";
+        }
+      }
+    }
+  }
+
+printf("abans\n");
+char name[] = "/tmp/asdf.XXXXXXX";
+printf("abans name =%s\n", name);
+int f= mkstemp(name);
+printf("despres name =%s\n", name);
+exit(0);
+
+  // get temporary file
+  int fd;
+  char fileNameTemplate[PATH_MAX];
+  sprintf(fileNameTemplate, "%s/_sbench.libcurl.XXXXXX", tmpfolder);
+  printf("tempname = %s\n", tempnam(tmpfolder, "asdf.XXXXXX"));
+
+printf("Temporary filename = %s\n", fileNameTemplate);
+
+// http://stackoverflow.com/questions/1636333/download-file-using-libcurl-in-c-c
+ 
+  curl = curl_easy_init();
+  if(curl) {
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    // Skip follow redirection, we need a fast final HTTP GET
+    // curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+ 
+    // Perform the request, res will get the return code
+    res = curl_easy_perform(curl);
+    // Check for errors
+    if(res != CURLE_OK) {
+      sprintf(msg, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+      myAbort(msg);
+    }
+ 
+    /* always cleanup */ 
+    curl_easy_cleanup(curl);
+
+    // remove temporary file
+
+/*
+    if(remove(fileNameTemplate) != 0) {
+      sprintf(msg, "Can't delete the target file %s after the test", fileName);
+      myAbort(msg);
+    }
+*/
+  }
+  return 0;
+}
+
 
 int main (int argc, char *argv[]) {
   int  verbose = 0;
@@ -492,9 +609,10 @@ int main (int argc, char *argv[]) {
   unsigned long sizeInBytes, times;
   char folderName[PATH_MAX-12];
   char targetFileName[PATH_MAX];
+  char url[CURLINFO_EFFECTIVE_URL];
  
   getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url);
   if(thisType == CPU) {
     double r = doCpuTest(times, verbose);
     printf("%f s\n", r);
@@ -510,6 +628,11 @@ int main (int argc, char *argv[]) {
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
     double r = doDiskReadTest(thisType, sizeInBytes, times, targetFileName, verbose);
     printf("%f s\n", r);
+  }
+  else if(thisType == HTTP_GET) {
+    printf("http get url %s\n", url);
+    httpGet(url);
+//    printf("%f s\n", r);
   }
   else {
     myAbort(/* bug */ "Unknown type");
