@@ -33,6 +33,7 @@
 #include <curl/curl.h>    // libcurl
 
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
+#define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
 
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 
@@ -541,10 +542,9 @@ int compare(FILE *fp1, FILE *fp2) {
   char c1, c2;
   int areDifferent = 0; // 0 ok, 1 differences found
 
-printf("Comparing files\n");
   while (((c1 = fgetc(fp1)) != EOF) &&((c2 = fgetc(fp2)) != EOF)) {
     /* character by character comparision until end of file */
-printf("Comparing %c == %c\n", c1, c2);
+    // printf("Comparing %c == %c\n", c1, c2);
     if (c1 == c2)
       continue;
     /*
@@ -555,7 +555,6 @@ printf("Comparing %c == %c\n", c1, c2);
       break;
     }
   }
-printf("files compared\n");
   return areDifferent;
 }
 
@@ -563,7 +562,7 @@ printf("files compared\n");
 /**
   * https://curl.haxx.se/libcurl/c/
   */
-int httpGet(char *url, char *httpRefFileBasename, unsigned long timeoutInMS, int *different) {
+double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose) {
   CURL *curl;
   CURLcode res;
   char msg[100];
@@ -594,7 +593,7 @@ int httpGet(char *url, char *httpRefFileBasename, unsigned long timeoutInMS, int
   // get temporary file
   sprintf(fileNameTemplate, "%s/_sbench.libcurl.XXXXXX", tmpfolder);
   fd = mkstemp(fileNameTemplate);
-  printf("Using temporary file %s\n", fileNameTemplate);
+  if(verbose) printf("Using temporary file %s\n", fileNameTemplate);
 
   // get a stream from the file descriptor
   fds = fdopen(fd, "w");
@@ -605,14 +604,17 @@ int httpGet(char *url, char *httpRefFileBasename, unsigned long timeoutInMS, int
 
   // get the reference file
   sprintf(refFilePath, "%s/%s", CURL_REFS_FOLDER, httpRefFileBasename);
-  printf("Using refFilePath=%s\n", refFilePath);
+  if(verbose) printf("Using refFilePath = %s\n", refFilePath);
 
   // http://stackoverflow.com/questions/1636333/download-file-using-libcurl-in-c-c
  
   curl = curl_easy_init();
 
   // set timeout
-  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeoutInMS);
+  // Won't use timeoutInMS, we'll use CURL_TIMEOUT_MS, just for sane connection
+  // http://stackoverflow.com/questions/10486119/libcurl-c-timeout-and-success-transfer
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT,    CURL_TIMEOUT_MS);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, CURL_TIMEOUT_MS);
 
   /*
    * PENDING: proxy settings
@@ -643,8 +645,6 @@ int httpGet(char *url, char *httpRefFileBasename, unsigned long timeoutInMS, int
       sprintf(msg, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
       myAbort(msg);
     }
-
-PENDING CORRECT TIMEOUT: http://stackoverflow.com/questions/10486119/libcurl-c-timeout-and-success-transfer
 
     /* cleanup libcurl stuff */ 
     curl_easy_cleanup(curl);
@@ -738,15 +738,20 @@ int main (int argc, char *argv[]) {
     exit(0);
   }
   else if(thisType == HTTP_GET) {
-    printf("http get url %s\n", url);
-    r = httpGet(url, httpRefFileBasename, timeoutInMS, &different);
+    if(verbose) printf("getting %s by HTTP GET\n", url);
+    r = httpGet(url, httpRefFileBasename, &different, verbose);
     if(different) {
       printf("Different: %f s\n", r);
       exit(2);
     }
     else {
       printf("Equal:     %f s\n", r);
-      exit(0);
+      if(r >= timeoutInMS/1000.) {
+        exit(2);
+      }
+      else {
+        exit(0);
+      }
     }
   }
   else {
