@@ -744,15 +744,25 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
 
 /**
   *
-  * How to install octo's ping library on Ubuntu:
+  * Ping using Octo's ping library
+  *
+  * How to install this library on Ubuntu:
   *            * to run:     $ sudo apt-get install liboping0
   *            * to develop: $ sudo apt-get install liboping-dev
   *
+  * To avoid having to run it as root (sudo or setuid)
+  *   you can simply "setcap cap_net_raw=ep /opt/sbench/sbench"
+  *
+  * @seeAlso https://github.com/octo/liboping/
   */
 float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int verbose) {
   pingobj_t *ping;
   pingobj_iter_t *iter;
   char msg[100];
+  int i = 1;
+  double accumulatedLatency = 0;
+  size_t successfullResponses = 0;
+  double averageLatency = 0;
 
   if(verbose) printf("Sending %lu ICMP echo request paquets %lu bytes-long to %s\n",times, sizeInBytes, dest);
   
@@ -767,7 +777,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
     sprintf(msg, "ping_host_add(%s): failed. %s\n", dest, errMsg);
     myAbort(msg);
   }
-  printf("ping_host_add(): success\n");
+  if(verbose) printf("ping_host_add(): success\n");
   
   while(1) {
     if(ping_send(ping) < 0) {
@@ -787,13 +797,24 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
       ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
       len = sizeof(double);
       ping_iterator_get_info(iter, PING_INFO_LATENCY, &latency, &len);
+      if(latency != -1) {
+        successfullResponses++;
+        accumulatedLatency  += latency;
+      }
       
-      printf("ping: hostname = %s, latency = %f\n", hostname, latency);
+      if(verbose) printf("ping: hostname = %s, latency = %f\n", hostname, latency);
     }
+    if(verbose) printf("ping iteration # %d\n", i);
+    if(i++ == times)
+      break;
     sleep(1);
   }
-  
-  return (0);
+  if(successfullResponses == 0) {
+    sprintf(msg, "Zero responses received when sending %lu echo requests to %s", times, dest);
+    myAbort(msg);
+  }
+  averageLatency = accumulatedLatency/successfullResponses;
+  return averageLatency;
 }
 
 int main (int argc, char *argv[]) {
