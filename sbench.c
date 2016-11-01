@@ -61,8 +61,8 @@ void usage() {
   printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To get the mean round-trip time sending\n");
-  printf("     4 ICMP echo request to host.domain.net:\n");
-  printf("  sbench -t ping -p 4,56,host.domain.net\n");
+  printf("     4 ICMP echo request to ahost.adomain.net:\n");
+  printf("  sbench -t ping -p 4,56,ahost.adomain.net\n");
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("     with a timeout of 2s and to compare it with the reference:\n");
   printf("     file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
@@ -744,7 +744,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
 
 /**
   *
-  * How to install oping on Ubuntu:
+  * How to install octo's ping library on Ubuntu:
   *            * to run:     $ sudo apt-get install liboping0
   *            * to develop: $ sudo apt-get install liboping-dev
   *
@@ -752,28 +752,29 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
 float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int verbose) {
   pingobj_t *ping;
   pingobj_iter_t *iter;
+  char msg[100];
 
   if(verbose) printf("Sending %lu ICMP echo request paquets %lu bytes-long to %s\n",times, sizeInBytes, dest);
   
-  if ((ping = ping_construct()) == NULL) {
-    fprintf(stderr, "ping_construct failed\n");
-    return (-1);
+  if((ping = ping_construct()) == NULL) {
+    sprintf(msg, "ping_construct: failed\n");
+    myAbort(msg);
   }
-  printf("ping_construct() success\n");
+  if(verbose) printf("ping_construct(): success\n");
   
-  if (ping_host_add(ping, "www.ub.edu") < 0) {
-    const char * errmsg = ping_get_error(ping);
-    fprintf(stderr, "ping_host_add(www.ub.edu) failed. %s\n", errmsg);
-    return (-1);
+  if(ping_host_add(ping, dest) < 0) {
+    const char *errMsg = ping_get_error(ping);
+    sprintf(msg, "ping_host_add(%s): failed. %s\n", dest, errMsg);
+    myAbort(msg);
   }
-  printf("ping_host_add() success\n");
+  printf("ping_host_add(): success\n");
   
-  while (1) {
-    if (ping_send(ping) < 0) {
-      fprintf(stderr, "ping_send failed\n");
-      return (-1);
+  while(1) {
+    if(ping_send(ping) < 0) {
+      sprintf(msg, "ping_send: failed\n");
+      myAbort(msg);
     }
-    printf("ping_send() success\n");
+    if(verbose) printf("ping_send(): success\n");
     
     for (iter = ping_iterator_get(ping); iter != NULL; iter =
             ping_iterator_next(iter)) {
@@ -781,17 +782,16 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
       double latency;
       size_t len;
       
-      printf("ping_iterator_get() success\n");
+      if(verbose) printf("ping_iterator_get(): success\n");
       len = 100;
       ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
       len = sizeof(double);
       ping_iterator_get_info(iter, PING_INFO_LATENCY, &latency, &len);
       
-      printf("hostname = %s, latency = %f\n", hostname, latency);
+      printf("ping: hostname = %s, latency = %f\n", hostname, latency);
     }
     sleep(1);
   }
-  printf("exiting...\n");
   
   return (0);
 }
