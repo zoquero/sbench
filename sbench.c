@@ -8,6 +8,7 @@
  * * DISK_R_SEQ: Shows the time it takes to read sequentially chunks from a file
  * * DISK_R_RAN: Shows the time it takes to random read chunks from a file
  * * HTTP_GET: Shows the time it takes to HTTP GET a file
+ * * PING: Shows the round-trip time when pinging a host
  * 
  * Sources: https://github.com/zoquero/simplebenchmark/
  * 
@@ -31,11 +32,12 @@
 #include <sys/stat.h>     // stat
 #include <fcntl.h>        // open
 #include <curl/curl.h>    // libcurl
+#include <oping.h>        // octo's ping library
 
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
 #define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
 
-enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
+enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
 void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
@@ -45,6 +47,7 @@ void usage() {
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
+  printf("sbench (-v) -t ping       -p <times,sizeInBytes,dest>\n");
   printf("sbench (-v) -t http_get   -p <timeoutInMS,httpRef,url>\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
@@ -57,6 +60,9 @@ void usage() {
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,/tmp/_sbench.testfile\n");
+  printf("* To get the mean round-trip time sending\n");
+  printf("     4 ICMP echo request to host.domain.net:\n");
+  printf("  sbench -t ping -p 4,56,host.domain.net\n");
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("     with a timeout of 2s and to compare it with the reference:\n");
   printf("     file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
@@ -95,7 +101,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS) {
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
   char *strTmp1, *strTmp2, *strTmp3;
   if(thisType == CPU) {
     if(strlen(params) > 19) {
@@ -221,6 +227,38 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     if(verbose)
       printf("type=http_get, timeoutInMS=%lu, httpRefFileBasename=%s, url=%s, verbose=%d\n", *timeoutInMS, httpRefFileBasename, url, verbose);
   }
+  else if(thisType == PING) {
+    strTmp1 = strtok(params, ",");
+    if(strTmp1 == NULL) {
+      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
+      usage();
+    }
+    if(strlen(params) < strlen(strTmp1)) {
+      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
+      usage();
+    }
+    if(sscanf(strTmp1, "%lu", times) != 1) {
+      fprintf(stderr, "\"times\" must be an integer\n");
+      usage();
+    }
+    strTmp2 = strtok(NULL, ",");
+    if(strTmp2 == NULL) {
+      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
+      usage();
+    }
+    strTmp3 = strtok(NULL, ",");
+    if(strTmp3 == NULL) {
+      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
+      usage();
+    }
+
+    *times       = parseUL(strTmp1, "times");
+    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
+    strcpy(dest, strTmp3);
+
+    if(verbose)
+      printf("type=ping, sizeInBytes=%lu, times=%lu, dest=%s, verbose=%d\n", *sizeInBytes, *times, dest, verbose);
+  }
   else {
     fprintf(stderr, "Unknown o missing type\n");
     usage();
@@ -260,6 +298,9 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
         }
         else if(strcmp(optarg, "disk_r_ran") == 0) {
           *thisType = DISK_R_RAN;
+        }
+        else if(strcmp(optarg, "ping") == 0) {
+          *thisType = PING;
         }
         else if(strcmp(optarg, "http_get") == 0) {
           *thisType = HTTP_GET;
@@ -701,6 +742,59 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   return delta;
 }
 
+/**
+  *
+  * How to install oping on Ubuntu:
+  *            * to run:     $ sudo apt-get install liboping0
+  *            * to develop: $ sudo apt-get install liboping-dev
+  *
+  */
+float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int verbose) {
+  pingobj_t *ping;
+  pingobj_iter_t *iter;
+
+  if(verbose) printf("Sending %lu ICMP echo request paquets %lu bytes-long to %s\n",times, sizeInBytes, dest);
+  
+  if ((ping = ping_construct()) == NULL) {
+    fprintf(stderr, "ping_construct failed\n");
+    return (-1);
+  }
+  printf("ping_construct() success\n");
+  
+  if (ping_host_add(ping, "www.ub.edu") < 0) {
+    const char * errmsg = ping_get_error(ping);
+    fprintf(stderr, "ping_host_add(www.ub.edu) failed. %s\n", errmsg);
+    return (-1);
+  }
+  printf("ping_host_add() success\n");
+  
+  while (1) {
+    if (ping_send(ping) < 0) {
+      fprintf(stderr, "ping_send failed\n");
+      return (-1);
+    }
+    printf("ping_send() success\n");
+    
+    for (iter = ping_iterator_get(ping); iter != NULL; iter =
+            ping_iterator_next(iter)) {
+      char hostname[100];
+      double latency;
+      size_t len;
+      
+      printf("ping_iterator_get() success\n");
+      len = 100;
+      ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
+      len = sizeof(double);
+      ping_iterator_get_info(iter, PING_INFO_LATENCY, &latency, &len);
+      
+      printf("hostname = %s, latency = %f\n", hostname, latency);
+    }
+    sleep(1);
+  }
+  printf("exiting...\n");
+  
+  return (0);
+}
 
 int main (int argc, char *argv[]) {
   int  verbose = 0;
@@ -713,10 +807,11 @@ int main (int argc, char *argv[]) {
   char httpRefFileBasename[PATH_MAX];
   unsigned long timeoutInMS;
   int different = 1;
+  char dest[HOST_NAME_MAX];
   double r;
 
   getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
   if(thisType == CPU) {
     r = doCpuTest(times, verbose);
     printf("%f s\n", r);
@@ -753,6 +848,11 @@ int main (int argc, char *argv[]) {
         exit(0);
       }
     }
+  }
+  else if(thisType == PING) {
+    r = doPing(sizeInBytes, times, dest, verbose);
+    printf("%f s\n", r);
+    exit(0);
   }
   else {
     myAbort(/* bug */ "Unknown type");
