@@ -48,7 +48,7 @@ void usage() {
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t ping       -p <times,sizeInBytes,dest>\n");
-  printf("sbench (-v) -t http_get   -p <timeoutInMS,httpRef,url>\n");
+  printf("sbench (-v) -t http_get   -p <httpRef,url>\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
@@ -64,9 +64,9 @@ void usage() {
   printf("     4 ICMP echo request to ahost.adomain.net:\n");
   printf("  sbench -t ping -p 4,56,ahost.adomain.net\n");
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
-  printf("     with a timeout of 2s and to compare it with the reference:\n");
+  printf("     and to compare it with the reference:\n");
   printf("     file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
-  printf("  sbench -t http_get -p 2000,my_ref_file,http://www.test.com/file\n");
+  printf("  sbench -t http_get -p my_ref_file,http://www.test.com/file\n");
   printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
   exit(1);
 }
@@ -202,30 +202,25 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
   else if(thisType == HTTP_GET) {
     strTmp1 = strtok(params, ",");
     if(strTmp1 == NULL) {
-      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
+      fprintf(stderr, "Params must be in \"refName,url\" format\n");
       usage();
     }
     if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
+      fprintf(stderr, "Params must be in \"refName,url\" format\n");
       usage();
     }
     strTmp2 = strtok(NULL, ",");
     if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
-      usage();
-    }
-    strTmp3 = strtok(NULL, ",");
-    if(strTmp3 == NULL) {
-      fprintf(stderr, "Params must be in \"timeoutMS,refName,url\" format\n");
+      fprintf(stderr, "Params must be in \"refName,url\" format\n");
       usage();
     }
 
-    *timeoutInMS = parseUL(strTmp1, "timeoutInMS");
-    strcpy(httpRefFileBasename, strTmp2);
-    strcpy(url, strTmp3);
+    // *timeoutInMS = parseUL(strTmp1, "timeoutInMS");
+    strcpy(httpRefFileBasename, strTmp1);
+    strcpy(url, strTmp2);
 
     if(verbose)
-      printf("type=http_get, timeoutInMS=%lu, httpRefFileBasename=%s, url=%s, verbose=%d\n", *timeoutInMS, httpRefFileBasename, url, verbose);
+      printf("type=http_get, httpRefFileBasename=%s, url=%s, verbose=%d\n", httpRefFileBasename, url, verbose);
   }
   else if(thisType == PING) {
     strTmp1 = strtok(params, ",");
@@ -651,8 +646,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
  
   curl = curl_easy_init();
 
-  // set timeout
-  // Won't use timeoutInMS, we'll use CURL_TIMEOUT_MS, just for sane connection
+  // We'll set a max timeout (CURL_TIMEOUT_MS), just for sane connection
   // http://stackoverflow.com/questions/10486119/libcurl-c-timeout-and-success-transfer
   curl_easy_setopt(curl, CURLOPT_TIMEOUT,    CURL_TIMEOUT_MS);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, CURL_TIMEOUT_MS);
@@ -781,10 +775,10 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
   
   while(1) {
     if(ping_send(ping) < 0) {
-      sprintf(msg, "ping_send: failed\n");
+      sprintf(msg, "ping_send #%d: failed\n", i);
       myAbort(msg);
     }
-    if(verbose) printf("ping_send(): success\n");
+    // if(verbose) printf("ping_send() #%d: success\n", i);
     
     for (iter = ping_iterator_get(ping); iter != NULL; iter =
             ping_iterator_next(iter)) {
@@ -792,7 +786,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
       double latency;
       size_t len;
       
-      if(verbose) printf("ping_iterator_get(): success\n");
+      // if(verbose) printf("ping_iterator_get() #%d: success\n", i);
       len = 100;
       ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
       len = sizeof(double);
@@ -802,9 +796,9 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
         accumulatedLatency  += latency;
       }
       
-      if(verbose) printf("ping: hostname = %s, latency = %f\n", hostname, latency);
+      if(verbose) printf("ping #%d: hostname = %s, latency = %f\n", i, hostname, latency);
     }
-    if(verbose) printf("ping iteration # %d\n", i);
+    // if(verbose) printf("ping iteration # %d\n", i);
     if(i++ == times)
       break;
     sleep(1);
