@@ -33,11 +33,22 @@
 #include <fcntl.h>        // open
 #include <curl/curl.h>    // libcurl
 #include <oping.h>        // octo's ping library
+#include <pthread.h>      // pthread_create ...
 
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
 #define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
 
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
+
+typedef struct dw_args {
+  unsigned long sizeInBytes;
+  unsigned long times;
+  char         *folderName;
+  int           verbose;
+  unsigned int  threadNumber;
+  double        delta; // return value
+} dw_args_struct;
+
 
 void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
@@ -45,6 +56,7 @@ void usage() {
   printf("sbench (-v) -t cpu        -p <times>\n");
   printf("sbench (-v) -t mem        -p <times,sizeInBytes>\n");
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
+  printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,numThreads,folderName>\n");
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t ping       -p <times,sizeInBytes,dest>\n");
@@ -53,9 +65,9 @@ void usage() {
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
   printf("* To do silly calculus (2 pows) 100E6 times (it takes ~6E6/s):\n");
-  printf("  sbench -t cpu -p 100000000\n");
-  printf("* To write 100 MiB in a file in 4k blocks:\n");
-  printf("  sbench -t disk_w -p 25600,4096,/tmp/_sbench.d\n");
+  printf("  sbench -t cpu -p 10000000\n");
+  printf("* To create 4 threads each writing 10 MiB in a file in 4k blocks:\n");
+  printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n");
   printf("* To read sequentially 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
@@ -101,8 +113,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
-  char *strTmp1, *strTmp2, *strTmp3;
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
   if(thisType == CPU) {
     if(strlen(params) > 19) {
       fprintf(stderr, "\"times\" must fit in a long integer\n");
@@ -116,80 +127,29 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       printf("type=cpu, times=%lu verbose=%d\n", *times, verbose);
   }
   else if(thisType == MEM) {
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
+    if(sscanf(params, "%lu,%lu", times, sizeInBytes) != 2) {
       fprintf(stderr, "Params must be in \"num,num\" format\n");
       usage();
     }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
-    }
-
-    *times       = parseUL(strTmp1, "times");
-    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
-
     if(verbose)
       printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
   }
   else if(thisType == DISK_W) {
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
+    if(sscanf(params, "%lu,%lu,%u,%s", times, sizeInBytes, nThreads, folderName) != 4) {
+      *nThreads = 1;
+      if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, folderName) != 3) {
+        fprintf(stderr, "Params must be in \"num,num,(num,)path\" format\n");
+        usage();
+      }
     }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-    strTmp3 = strtok(NULL, ",");
-    if(strTmp3 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-
-    *times       = parseUL(strTmp1, "times");
-    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
-    strcpy(folderName, strTmp3);
-
     if(verbose)
-      printf("type=disk_w, times=%lu, sizeInBytes=%lu, folderName=%s verbose=%d\n", *times, *sizeInBytes, folderName, verbose);
+      printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, verbose);
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
+    if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, targetFileName) != 3) {
       fprintf(stderr, "Params must be in \"num,num,path\" format\n");
       usage();
     }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-    strTmp3 = strtok(NULL, ",");
-    if(strTmp3 == NULL) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
-    }
-
-    *times       = parseUL(strTmp1, "times");
-    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
-    strcpy(targetFileName, strTmp3);
-
     if(verbose) {
       if(thisType == DISK_R_SEQ) {
         printf("type=disk_r_seq, times=%lu, sizeInBytes=%lu, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, targetFileName, verbose);
@@ -200,57 +160,18 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     }
   }
   else if(thisType == HTTP_GET) {
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
+    if(sscanf(params, "%s,%s", httpRefFileBasename, url) != 2) {
       fprintf(stderr, "Params must be in \"refName,url\" format\n");
       usage();
     }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"refName,url\" format\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"refName,url\" format\n");
-      usage();
-    }
-
-    // *timeoutInMS = parseUL(strTmp1, "timeoutInMS");
-    strcpy(httpRefFileBasename, strTmp1);
-    strcpy(url, strTmp2);
-
     if(verbose)
       printf("type=http_get, httpRefFileBasename=%s, url=%s, verbose=%d\n", httpRefFileBasename, url, verbose);
   }
   else if(thisType == PING) {
-    strTmp1 = strtok(params, ",");
-    if(strTmp1 == NULL) {
-      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
+    if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, dest) != 3) {
+      fprintf(stderr, "Params must be in \"times,sizeInBytes,dest\" format\n");
       usage();
     }
-    if(strlen(params) < strlen(strTmp1)) {
-      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
-      usage();
-    }
-    if(sscanf(strTmp1, "%lu", times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
-      usage();
-    }
-    strTmp2 = strtok(NULL, ",");
-    if(strTmp2 == NULL) {
-      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
-      usage();
-    }
-    strTmp3 = strtok(NULL, ",");
-    if(strTmp3 == NULL) {
-      fprintf(stderr, "Params must be in \"sizeInBytes,times,dest\" format\n");
-      usage();
-    }
-
-    *times       = parseUL(strTmp1, "times");
-    *sizeInBytes = parseUL(strTmp2, "sizeInBytes");
-    strcpy(dest, strTmp3);
-
     if(verbose)
       printf("type=ping, sizeInBytes=%lu, times=%lu, dest=%s, verbose=%d\n", *sizeInBytes, *times, dest, verbose);
   }
@@ -367,7 +288,7 @@ double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
     }
     gettimeofday(&after, NULL);
     delta=timeval_diff(&after, &before);
-    if(verbose) printf("malloc : %f\n", delta);
+    if(verbose) printf("* malloc : %f\n", delta);
    
     /* VmRSS ! */
     gettimeofday(&before, NULL);
@@ -377,13 +298,13 @@ double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
     }
     gettimeofday(&after, NULL);
     delta=timeval_diff(&after, &before);
-    if(verbose) printf("memset : %f\n", delta);
+    if(verbose) printf("  memset : %f\n", delta);
   
     gettimeofday(&before, NULL);
     free(cptr);
     gettimeofday(&after, NULL);
     delta=timeval_diff(&after, &before);
-    if(verbose) printf("free   : %f\n", delta);
+    if(verbose) printf("  free   : %f\n", delta);
     //getchar();
   }
   gettimeofday(&end, NULL);
@@ -393,23 +314,27 @@ double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
 }
 
 
-double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *folderName, int verbose) {
+void *diskWriteStartupRoutine(void *arg) {
   char msg[100];
   struct timeval beginning, end;
-  double delta;
   int  fd;
   char fileName[PATH_MAX];
   char *buffer;
+  dw_args_struct *args = (dw_args_struct *) arg;
 
-  // The folder must pre-exist
-  struct stat s = {0};
-  if(stat(folderName, &s) != 0 || ! S_ISDIR(s.st_mode))  {
-    sprintf(msg, "%s must exist previously and must be a folder", folderName);
-    myAbort(msg);
-  }
+  // output is not serialized, so verbose mode will have an ugly look
+
+  if(args->verbose)
+    printf("thread #%d that will write %lu bytes %lu times on a file on %s", 
+      args->threadNumber,
+      args->sizeInBytes ,
+      args->times       ,
+      args->folderName);
+
+  // Let's work:
 
   // The file cannot pre-exist (we won't overwrite!)
-  sprintf((char *) fileName, "%s/disk_w.out", folderName);
+  sprintf((char *) fileName, "%s/disk_w.out.%d", args->folderName, args->threadNumber);
   if(access(fileName, F_OK) != -1 ) {
     sprintf(msg, "Ensure that the target file %s doesn't exist previously",
       fileName);
@@ -417,13 +342,13 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *fol
   }
 
   // Allocate RAM for the block of sizeInBytes bytes
-  buffer=malloc(sizeInBytes);
+  buffer=malloc(args->sizeInBytes);
   if(buffer == NULL) {
-    sprintf(msg, "Can't allocate %lu bytes for the buffer", sizeInBytes);
+    sprintf(msg, "Can't allocate %lu bytes for the buffer", args->sizeInBytes);
     myAbort(msg);
   }
-  if(memset(buffer, 0xA5, sizeInBytes) == NULL) {
-    sprintf(msg, "Can't memset on those %lu bytes on memory", sizeInBytes);
+  if(memset(buffer, 0xA5, args->sizeInBytes) == NULL) {
+    sprintf(msg, "Can't memset on the %lu bytes of the buffer", args->sizeInBytes);
     myAbort(msg);
   }
 
@@ -434,13 +359,13 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *fol
     myAbort(msg);
   }
   // loop for writing and storing (fflush+msync)
-  if(verbose) printf("Let's write %lu bytes %lu types on %s\n",
-                sizeInBytes, times, fileName);
+  if(args->verbose) printf("Let's write %lu bytes %lu types on %s\n",
+                args->sizeInBytes, args->times, fileName);
   gettimeofday(&beginning, NULL);
-  for(unsigned long i = 0; i < times; i++) {
+  for(unsigned long i = 0; i < args->times; i++) {
     // write
-    if(write(fd, buffer, sizeInBytes) != sizeInBytes) {
-      sprintf(msg, "Couldn't write %lu bytes to %s", sizeInBytes, fileName);
+    if(write(fd, buffer, args->sizeInBytes) != args->sizeInBytes) {
+      sprintf(msg, "Can't write %lu bytes to %s", args->sizeInBytes, fileName);
       myAbort(msg);
     }
     /*
@@ -448,12 +373,13 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *fol
      * This way we'll be able to send burst of BIOs if needed.
      */
     if(fsync(fd) != 0) {
-      sprintf(msg, "Couldn't flush after writing %lu-th block on %s", i, fileName);
+      sprintf(msg, "Can't flush after writing %lu-th block on %s", i, fileName);
       myAbort(msg);
     }
   }
   gettimeofday(&end, NULL);
-  delta=timeval_diff(&end, &beginning);
+  args->delta=timeval_diff(&end, &beginning);
+
   // close
   if(close(fd) == -1) {
     sprintf(msg, "Can't close the target file %s", fileName);
@@ -466,11 +392,60 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, char *fol
     myAbort(msg);
   }
 
-  // let's free the buffer
+  // free the buffer
   free(buffer);
+
+  return NULL;
+}
+
+
+double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned int nThreads, char *folderName, int verbose) {
+  char msg[100];
+  double delta = 0;
+
+  // The folder must pre-exist
+  struct stat s = {0};
+  if(stat(folderName, &s) != 0 || ! S_ISDIR(s.st_mode))  {
+    sprintf(msg, "%s must exist previously and must be a folder", folderName);
+    myAbort(msg);
+  }
+
+  // Thread creation
+  pthread_t      *threads = (pthread_t *)      malloc(nThreads * sizeof(pthread_t));
+  dw_args_struct *args    = (dw_args_struct *) malloc(nThreads * sizeof(dw_args_struct));
+
+  if(verbose) printf("Let's create %d threads:\n", nThreads);
+
+  // let's fill the args for the n-th thread.
+  for (int i = 0; i < nThreads; i++) {
+    args[i].sizeInBytes  = sizeInBytes,
+    args[i].times        = times,
+    args[i].folderName   = folderName,
+    args[i].verbose      = verbose,
+    args[i].threadNumber = i,
+    args[i].delta        = 0.;
+
+    if(pthread_create(&(threads[i]), NULL, diskWriteStartupRoutine, (void *) &args[i]) ) {
+      sprintf(msg, "Can't create the %d-th thread", i);
+      myAbort(msg);
+    }
+  }
+
+  if(verbose) printf("Threads created, waiting for completion...:\n");
+  for (int i = 0; i < nThreads; i++) {
+    if(pthread_join(threads[i], NULL)) {
+      sprintf(msg, "Can't join to %d-th thread", i);
+      myAbort(msg);
+    }
+    if(verbose) printf("The thread #%d has finished with delta = %f\n", i, args[i].delta);
+    delta+=args[i].delta;
+  }
+  free(threads);
+  free(args);
 
   return delta;
 }
+
 
 void shuffle(unsigned long *array, size_t n) {
   if (n > 1) {
@@ -483,6 +458,7 @@ void shuffle(unsigned long *array, size_t n) {
     }
   }
 }
+
 
 double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, char *targetFileName, int verbose) {
   char msg[100];
@@ -610,7 +586,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   struct timeval beginning, end;
   double delta;
 
-  // get TMPDIR
+  // get TMPDIR , TMP , TEMP , TEMPDIR ... /tmp/
   char const *tmpfolder = getenv("TMPDIR");
   if (tmpfolder == 0) {
     tmpfolder = getenv("TMP");
@@ -816,6 +792,7 @@ int main (int argc, char *argv[]) {
   char *params = 0;
   enum type thisType;
   unsigned long sizeInBytes, times;
+  unsigned int  nThreads;
   char folderName[PATH_MAX-12];
   char targetFileName[PATH_MAX];
   char url[CURLINFO_EFFECTIVE_URL];
@@ -826,7 +803,7 @@ int main (int argc, char *argv[]) {
   double r;
 
   getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
   if(thisType == CPU) {
     r = doCpuTest(times, verbose);
     printf("%f s\n", r);
@@ -838,7 +815,7 @@ int main (int argc, char *argv[]) {
     exit(0);
   }
   else if(thisType == DISK_W) {
-    r = doDiskWriteTest(sizeInBytes, times, folderName, verbose);
+    r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose);
     printf("%f s\n", r);
     exit(0);
   }
