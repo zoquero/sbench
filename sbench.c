@@ -481,23 +481,18 @@ void *diskReadStartupRoutine(void *arg) {
   char msg[100];
   struct timeval beginning, end;
   double delta;
-  int  fd;
+  int  fd;      // Each thread must have its own file descriptor for the file
   char *buffer;
-  unsigned long *blocks;
   dr_args_struct *args = (dr_args_struct *) arg;
-  char threadTargetFileName[PATH_MAX];
+  unsigned long position;
+  unsigned long position2;
 
-  sprintf(threadTargetFileName, "%s.%d", args->targetFileName, args->threadNumber);
-
-  blocks = (unsigned long *) malloc(sizeof(unsigned long)*args->times);
-  for(unsigned long i = 0; i < args->times; i++) {
-    blocks[i] = i;
-  }
-  shuffle(blocks, args->times);
+  printf("Thread started:\n");
+  printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->sizeInBytes]);
 
   // The file must exist
-  if(access(threadTargetFileName, F_OK) == -1 ) {
-    sprintf(msg, "Can't find the target file %s", threadTargetFileName);
+  if(access(args->targetFileName, F_OK) == -1 ) {
+    sprintf(msg, "Can't find the target file %s", args->targetFileName);
     myAbort(msg);
   }
 
@@ -508,37 +503,41 @@ void *diskReadStartupRoutine(void *arg) {
     myAbort(msg);
   }
 
-  // check size
-  struct stat s;
-  stat(threadTargetFileName, &s);
-  if(s.st_size < args->sizeInBytes*args->times) {
-    sprintf(msg, "The size of the file %s is less than %lu*%lu bytes", threadTargetFileName, args->sizeInBytes, args->times);
+  // open
+  fd = open(args->targetFileName, O_RDONLY);
+  if(fd == -1) {
+    sprintf(msg, "Can't open the target file %s for reading", args->targetFileName);
     myAbort(msg);
   }
 
-  // open
-  fd = open(threadTargetFileName, O_RDONLY);
-  if(fd == -1) {
-    sprintf(msg, "Can't open the target file %s for reading", threadTargetFileName);
-    myAbort(msg);
-  }
   // loop for reading
-  if(args->verbose) printf("Let's read %lu bytes %lu types from %s\n",
-                args->sizeInBytes, args->times, threadTargetFileName);
+  if(args->verbose) printf("Let's read %lu bytes %lu times from %s\n",
+                args->sizeInBytes, args->times, args->targetFileName);
   gettimeofday(&beginning, NULL);
   for(unsigned long i = 0; i < args->times; i++) {
     // lseek for random read if DISK_R_RAN is choosen
     if(args->type == DISK_R_RAN) {
-      if(lseek(fd, args->blocks[args->threadNumber+i] * args->sizeInBytes, SEEK_SET) == -1) {
-        sprintf(msg, "Can't lseek to reposition before reading on random-access to %s on %lu-th iteration", threadTargetFileName, i);
+      position  = args->threadNumber + i;
+printf("Thread %d, iteració %lu: position # %lu\n", args->threadNumber, i, position);
+      position2 = args->blocks[position] * args->sizeInBytes;
+printf("Thread %d, iteració %lu: position # %lu, position2 # %lu\n", args->threadNumber, i, position, position2);
+printf("00 fseek cap a posició %lu:\n", position2);
+      if(lseek(fd, position2, SEEK_SET) == -1) {
+        sprintf(msg, "Can't lseek to reposition before reading on random-access to %s on %lu-th iteration", args->targetFileName, i);
         myAbort(msg);
       }
     }
+    else {
+myAbort("PENDING");
+    }
     // now can read
+printf("11\n");
     ssize_t ret_in = read(fd, buffer, args->sizeInBytes);
+printf("222\n");
     if(args->verbose) printf("Read %lu bytes on %lu-th iteration\n", ret_in, i);
+printf("3333\n");
     if(ret_in != args->sizeInBytes) {
-      sprintf(msg, "Read just %lu bytes from %s on %lu-th iteration", ret_in, threadTargetFileName, i);
+      sprintf(msg, "Read just %lu bytes from %s on %lu-th iteration", ret_in, args->targetFileName, i);
       myAbort(msg);
     }
   }
@@ -546,13 +545,12 @@ void *diskReadStartupRoutine(void *arg) {
   delta=timeval_diff(&end, &beginning);
   // close
   if(close(fd) == -1) {
-    sprintf(msg, "Can't close the target file %s", threadTargetFileName);
+    sprintf(msg, "Can't close the target file %s", args->targetFileName);
     myAbort(msg);
   }
 
   // let's free the buffer
   free(buffer);
-  free(blocks);
 
   // return value
   args->delta=delta;
@@ -561,16 +559,40 @@ void *diskReadStartupRoutine(void *arg) {
 
 
 
+/**
+  * This function allows to access concurrently to a file.
+  * It does it this way:
+  * * Creates an array of "times * nthreads" positions,1
+  * * shuffles it,
+  * * creates "nThreads" threads
+  * * asks each thread to read "times" of those positions
+  * The result is a random concurrent access to that single file.
+  */
 double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose) {
   char msg[100];
   double delta;
   unsigned long *blocks;
 
-  blocks = (unsigned long *) malloc(sizeof(unsigned long)*times*nThreads);
-  for(unsigned long i = 0; i < times; i++) {
+  // allocate the array that will contain the block positions of the file
+  blocks = (unsigned long *) malloc(sizeof(unsigned long) * times * nThreads);
+  for(unsigned long i = 0; i < times * nThreads; i++) {
     blocks[i] = i;
   }
-  shuffle(blocks, times);
+  shuffle(blocks, times * nThreads);
+
+printf("despŕes del shuffle\n");
+for(unsigned long i = 0; i < times * nThreads; i++) {
+printf("%lu = %lu\n", i, blocks[i]);
+}
+printf("<<<<<<<<<<<<shuffle\n");
+
+  // check file size
+  struct stat s;
+  stat(targetFileName, &s);
+  if(s.st_size < times*nThreads*sizeInBytes) {
+    sprintf(msg, "The size of the file %s must be greater or equal to %lu*%d*%lu bytes", targetFileName, times, nThreads, sizeInBytes);
+    myAbort(msg);
+  }
 
   // Thread creation
   pthread_t      *threads = (pthread_t *)      malloc(nThreads * sizeof(pthread_t));
@@ -595,13 +617,14 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
     }
   }
 
-  if(verbose) printf("Threads created, waiting for completion...:\n");
+  // sit back and enjoy
+  if(verbose) printf("All threads created, waiting for its completion...:\n");
   for (int i = 0; i < nThreads; i++) {
     if(pthread_join(threads[i], NULL)) {
       sprintf(msg, "Can't join to %d-th thread", i);
       myAbort(msg);
     }
-    if(verbose) printf("The thread #%d has finished with delta = %f\n", i, args[i].delta);
+    if(verbose) printf("Thread #%d finished with delta = %f\n", i, args[i].delta);
     delta+=args[i].delta;
   }
   free(threads);
