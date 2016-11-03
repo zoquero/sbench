@@ -40,6 +40,7 @@
 
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
+/* arguments for disk read */
 typedef struct dw_args {
   unsigned long sizeInBytes;
   unsigned long times;
@@ -48,6 +49,18 @@ typedef struct dw_args {
   unsigned int  threadNumber;
   double        delta; // return value
 } dw_args_struct;
+
+/* arguments for disk write */
+typedef struct dr_args {
+  enum type      type;
+  unsigned long  sizeInBytes;
+  unsigned long  times;
+  char          *targetFileName;
+  int            verbose;
+  unsigned int   threadNumber;
+  unsigned long *blocks;
+  double         delta; // return value
+} dr_args_struct;
 
 
 void usage() {
@@ -59,6 +72,7 @@ void usage() {
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,numThreads,folderName>\n");
   printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
   printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
+  printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,numThreads,fileName>\n");
   printf("sbench (-v) -t ping       -p <times,sizeInBytes,dest>\n");
   printf("sbench (-v) -t http_get   -p <httpRef,url>\n");
   printf("\nExamples:\n");
@@ -70,14 +84,15 @@ void usage() {
   printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n");
   printf("* To read sequentially 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
-  printf("* To read by random access 100 MiB from a file in 4k blocks:\n");
-  printf("  sbench -t disk_r_ran -p 25600,4096,/tmp/_sbench.testfile\n");
+  printf("* To read by random access 100 MiB from a file\n");
+  printf("      by 2 threads in 4k blocks:\n");
+  printf("  sbench -t disk_r_ran -p 25600,4096,2/tmp/_sbench.testfile\n");
   printf("* To get the mean round-trip time sending\n");
-  printf("     4 ICMP echo request to ahost.adomain.net:\n");
+  printf("      4 ICMP echo request to ahost.adomain.net:\n");
   printf("  sbench -t ping -p 4,56,ahost.adomain.net\n");
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
-  printf("     and to compare it with the reference:\n");
-  printf("     file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
+  printf("      and to compare it with the reference:\n");
+  printf("      file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
   printf("  sbench -t http_get -p my_ref_file,http://www.test.com/file\n");
   printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
   exit(1);
@@ -146,16 +161,19 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, verbose);
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
-    if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, targetFileName) != 3) {
-      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
-      usage();
+    if(sscanf(params, "%lu,%lu,%u,%s", times, sizeInBytes, nThreads, targetFileName) != 4) {
+      *nThreads = 1;
+      if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, targetFileName) != 3) {
+        fprintf(stderr, "Params must be in \"num,num,(num),path\" format\n");
+        usage();
+      }
     }
     if(verbose) {
       if(thisType == DISK_R_SEQ) {
         printf("type=disk_r_seq, times=%lu, sizeInBytes=%lu, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, targetFileName, verbose);
       }
       else if(thisType == DISK_R_RAN) {
-        printf("type=disk_r_ran, times=%lu, sizeInBytes=%lu, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, targetFileName, verbose);
+        printf("type=disk_r_ran, times=%lu, sizeInBytes=%lu, nThreads=%u, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, targetFileName, verbose);
       }
     }
   }
@@ -459,65 +477,68 @@ void shuffle(unsigned long *array, size_t n) {
   }
 }
 
-
-double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, char *targetFileName, int verbose) {
+void *diskReadStartupRoutine(void *arg) {
   char msg[100];
   struct timeval beginning, end;
   double delta;
   int  fd;
   char *buffer;
   unsigned long *blocks;
+  dr_args_struct *args = (dr_args_struct *) arg;
+  char threadTargetFileName[PATH_MAX];
 
-  blocks = (unsigned long *) malloc(sizeof(unsigned long)*times);
-  for(unsigned long i = 0; i < times; i++) {
+  sprintf(threadTargetFileName, "%s.%d", args->targetFileName, args->threadNumber);
+
+  blocks = (unsigned long *) malloc(sizeof(unsigned long)*args->times);
+  for(unsigned long i = 0; i < args->times; i++) {
     blocks[i] = i;
   }
-  shuffle(blocks, times);
+  shuffle(blocks, args->times);
 
   // The file must exist
-  if(access(targetFileName, F_OK) == -1 ) {
-    sprintf(msg, "Can't find the target file %s", targetFileName);
+  if(access(threadTargetFileName, F_OK) == -1 ) {
+    sprintf(msg, "Can't find the target file %s", threadTargetFileName);
     myAbort(msg);
   }
 
   // Allocate RAM for the block of sizeInBytes bytes
-  buffer=malloc(sizeInBytes);
+  buffer=malloc(args->sizeInBytes);
   if(buffer == NULL) {
-    sprintf(msg, "Can't allocate %lu bytes for the buffer", sizeInBytes);
+    sprintf(msg, "Can't allocate %lu bytes for the buffer", args->sizeInBytes);
     myAbort(msg);
   }
 
   // check size
   struct stat s;
-  stat(targetFileName, &s);
-  if(s.st_size < sizeInBytes*times) {
-    sprintf(msg, "The size of the file %s is less than %lu*%lu bytes", targetFileName, sizeInBytes, times);
+  stat(threadTargetFileName, &s);
+  if(s.st_size < args->sizeInBytes*args->times) {
+    sprintf(msg, "The size of the file %s is less than %lu*%lu bytes", threadTargetFileName, args->sizeInBytes, args->times);
     myAbort(msg);
   }
 
   // open
-  fd = open(targetFileName, O_RDONLY);
+  fd = open(threadTargetFileName, O_RDONLY);
   if(fd == -1) {
-    sprintf(msg, "Can't open the target file %s for reading", targetFileName);
+    sprintf(msg, "Can't open the target file %s for reading", threadTargetFileName);
     myAbort(msg);
   }
   // loop for reading
-  if(verbose) printf("Let's read %lu bytes %lu types from %s\n",
-                sizeInBytes, times, targetFileName);
+  if(args->verbose) printf("Let's read %lu bytes %lu types from %s\n",
+                args->sizeInBytes, args->times, threadTargetFileName);
   gettimeofday(&beginning, NULL);
-  for(unsigned long i = 0; i < times; i++) {
+  for(unsigned long i = 0; i < args->times; i++) {
     // lseek for random read if DISK_R_RAN is choosen
-    if(thisType == DISK_R_RAN) {
-      if(lseek(fd, sizeInBytes*i, SEEK_SET) == -1) {
-        sprintf(msg, "Can't lseek to reposition before reading on random-access to %s on %lu-th iteration", targetFileName, i);
+    if(args->type == DISK_R_RAN) {
+      if(lseek(fd, args->blocks[args->threadNumber+i] * args->sizeInBytes, SEEK_SET) == -1) {
+        sprintf(msg, "Can't lseek to reposition before reading on random-access to %s on %lu-th iteration", threadTargetFileName, i);
         myAbort(msg);
       }
     }
     // now can read
-    ssize_t ret_in = read(fd, buffer, sizeInBytes);
-    if(verbose) printf("Read %lu bytes on %lu-th iteration\n", ret_in, i);
-    if(ret_in != sizeInBytes) {
-      sprintf(msg, "Read just %lu bytes from %s on %lu-th iteration", ret_in, targetFileName, i);
+    ssize_t ret_in = read(fd, buffer, args->sizeInBytes);
+    if(args->verbose) printf("Read %lu bytes on %lu-th iteration\n", ret_in, i);
+    if(ret_in != args->sizeInBytes) {
+      sprintf(msg, "Read just %lu bytes from %s on %lu-th iteration", ret_in, threadTargetFileName, i);
       myAbort(msg);
     }
   }
@@ -525,7 +546,7 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
   delta=timeval_diff(&end, &beginning);
   // close
   if(close(fd) == -1) {
-    sprintf(msg, "Can't close the target file %s", targetFileName);
+    sprintf(msg, "Can't close the target file %s", threadTargetFileName);
     myAbort(msg);
   }
 
@@ -533,6 +554,58 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
   free(buffer);
   free(blocks);
 
+  // return value
+  args->delta=delta;
+  return NULL;
+}
+
+
+
+double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose) {
+  char msg[100];
+  double delta;
+  unsigned long *blocks;
+
+  blocks = (unsigned long *) malloc(sizeof(unsigned long)*times*nThreads);
+  for(unsigned long i = 0; i < times; i++) {
+    blocks[i] = i;
+  }
+  shuffle(blocks, times);
+
+  // Thread creation
+  pthread_t      *threads = (pthread_t *)      malloc(nThreads * sizeof(pthread_t));
+  dr_args_struct *args    = (dr_args_struct *) malloc(nThreads * sizeof(dr_args_struct));
+
+  if(verbose) printf("Let's create %d threads:\n", nThreads);
+
+  // let's fill the args for the n-th thread.
+  for (int i = 0; i < nThreads; i++) {
+    args[i].type           = thisType,
+    args[i].sizeInBytes    = sizeInBytes,
+    args[i].times          = times,
+    args[i].targetFileName = targetFileName,
+    args[i].verbose        = verbose,
+    args[i].threadNumber   = i,
+    args[i].blocks         = blocks,
+    args[i].delta          = 0.;
+
+    if(pthread_create(&(threads[i]), NULL, diskReadStartupRoutine, (void *) &args[i]) ) {
+      sprintf(msg, "Can't create the %d-th thread", i);
+      myAbort(msg);
+    }
+  }
+
+  if(verbose) printf("Threads created, waiting for completion...:\n");
+  for (int i = 0; i < nThreads; i++) {
+    if(pthread_join(threads[i], NULL)) {
+      sprintf(msg, "Can't join to %d-th thread", i);
+      myAbort(msg);
+    }
+    if(verbose) printf("The thread #%d has finished with delta = %f\n", i, args[i].delta);
+    delta+=args[i].delta;
+  }
+  free(threads);
+  free(args);
   return delta;
 }
 
@@ -820,7 +893,7 @@ int main (int argc, char *argv[]) {
     exit(0);
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
-    r = doDiskReadTest(thisType, sizeInBytes, times, targetFileName, verbose);
+    r = doDiskReadTest(thisType, sizeInBytes, times, nThreads, targetFileName, verbose);
     printf("%f s\n", r);
     exit(0);
   }
