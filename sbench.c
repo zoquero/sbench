@@ -86,7 +86,7 @@ void usage() {
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
   printf("* To read by random access 100 MiB from a file\n");
   printf("      by 2 threads in 4k blocks:\n");
-  printf("  sbench -t disk_r_ran -p 25600,4096,2/tmp/_sbench.testfile\n");
+  printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n");
   printf("* To get the mean round-trip time sending\n");
   printf("      4 ICMP echo request to ahost.adomain.net:\n");
   printf("  sbench -t ping -p 4,56,ahost.adomain.net\n");
@@ -131,11 +131,11 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
 void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
   if(thisType == CPU) {
     if(strlen(params) > 19) {
-      fprintf(stderr, "\"times\" must fit in a long integer\n");
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
       usage();
     }
-    if(sscanf(params, "%lu", times) != 1) {
-      fprintf(stderr, "\"times\" must be an integer\n");
+    if(sscanf(params, "%lu,%u", times, nThreads) != 1) {
+      fprintf(stderr, "Params must be in \"num,num\" format\n");
       usage();
     }
     if(verbose)
@@ -270,7 +270,7 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
 }
 
 
-double doCpuTest(unsigned long times, int verbose) {
+double doCpuTest(unsigned long times, int nThreads, int verbose) {
   struct timeval beginning, end;
   double delta;
 
@@ -486,11 +486,23 @@ void *diskReadStartupRoutine(void *arg) {
   dr_args_struct *args = (dr_args_struct *) arg;
   unsigned long position;
   unsigned long position2;
+  unsigned long *positions;
 
-  printf("Thread started:\n");
-  printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->sizeInBytes]);
+  if(args->verbose) printf("Thread #%d started:\n", args->threadNumber);
+  if(args->verbose) printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->sizeInBytes]);
 
-  // The file must exist
+  // create the array with positions to read, case DISK_R_RAN
+  if(args->type == DISK_R_RAN) {
+    positions = (unsigned long *) malloc(sizeof(unsigned long) * args->times);
+    for(unsigned long i = 0; i < args->times; i++) {
+      position  = args->threadNumber * args->times + i;
+      position2 = args->blocks[position] * args->sizeInBytes;
+      // printf("Thread %d, iteration %lu: position # %lu, position2 # %lu\n", args->threadNumber, i, position, position2);
+      positions[i] = position2;
+    }
+  }
+
+  // The file must exist previously
   if(access(args->targetFileName, F_OK) == -1 ) {
     sprintf(msg, "Can't find the target file %s", args->targetFileName);
     myAbort(msg);
@@ -503,54 +515,51 @@ void *diskReadStartupRoutine(void *arg) {
     myAbort(msg);
   }
 
-  // open
+  // open file
   fd = open(args->targetFileName, O_RDONLY);
   if(fd == -1) {
     sprintf(msg, "Can't open the target file %s for reading", args->targetFileName);
     myAbort(msg);
   }
 
-  // loop for reading
   if(args->verbose) printf("Let's read %lu bytes %lu times from %s\n",
                 args->sizeInBytes, args->times, args->targetFileName);
+
+  // loop for reading
   gettimeofday(&beginning, NULL);
   for(unsigned long i = 0; i < args->times; i++) {
     // lseek for random read if DISK_R_RAN is choosen
     if(args->type == DISK_R_RAN) {
-      position  = args->threadNumber + i;
-printf("Thread %d, iteració %lu: position # %lu\n", args->threadNumber, i, position);
-      position2 = args->blocks[position] * args->sizeInBytes;
-printf("Thread %d, iteració %lu: position # %lu, position2 # %lu\n", args->threadNumber, i, position, position2);
-printf("00 fseek cap a posició %lu:\n", position2);
-      if(lseek(fd, position2, SEEK_SET) == -1) {
-        sprintf(msg, "Can't lseek to reposition before reading on random-access to %s on %lu-th iteration", args->targetFileName, i);
+      // printf("Thread %d, iteration %lu: lseek to byte #%lu\n", args->threadNumber, i, positions[i]);
+      if(lseek(fd, positions[i], SEEK_SET) == -1) {
+        sprintf(msg, "Can't lseek to reposition to %lu byte before reading on random-access to %s on %lu-th iteration", position2, args->targetFileName, i);
         myAbort(msg);
       }
     }
-    else {
-myAbort("PENDING");
-    }
-    // now can read
-printf("11\n");
+
+    // now can read, current file offset is right, be DISK_R_RAN or DISK_R_SEQ
     ssize_t ret_in = read(fd, buffer, args->sizeInBytes);
-printf("222\n");
-    if(args->verbose) printf("Read %lu bytes on %lu-th iteration\n", ret_in, i);
-printf("3333\n");
+    // format: %zd for ssize_t
+    if(args->verbose) printf("Read %zd bytes on %lu-th iteration\n", ret_in, i);
     if(ret_in != args->sizeInBytes) {
-      sprintf(msg, "Read just %lu bytes from %s on %lu-th iteration", ret_in, args->targetFileName, i);
+      sprintf(msg, "Read just %zd bytes from %s on %lu-th iteration", ret_in, args->targetFileName, i);
       myAbort(msg);
     }
   }
   gettimeofday(&end, NULL);
   delta=timeval_diff(&end, &beginning);
-  // close
+
+  // close file
   if(close(fd) == -1) {
     sprintf(msg, "Can't close the target file %s", args->targetFileName);
     myAbort(msg);
   }
 
-  // let's free the buffer
+  // let's free the buffer and the array with positions
   free(buffer);
+  if(args->type == DISK_R_RAN) {
+    free(positions);
+  }
 
   // return value
   args->delta=delta;
@@ -590,7 +599,8 @@ printf("<<<<<<<<<<<<shuffle\n");
   struct stat s;
   stat(targetFileName, &s);
   if(s.st_size < times*nThreads*sizeInBytes) {
-    sprintf(msg, "The size of the file %s must be greater or equal to %lu*%d*%lu bytes", targetFileName, times, nThreads, sizeInBytes);
+    // format: %jd (intmax_t) for off_t
+    sprintf(msg, "The size of the file %s is %jd and must be greater or equal to %lu*%d*%lu bytes", targetFileName, (intmax_t) s.st_size, times, nThreads, sizeInBytes);
     myAbort(msg);
   }
 
@@ -814,7 +824,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   *
   * How to install this library on Ubuntu:
   *            * to run:     $ sudo apt-get install liboping0
-  *            * to develop: $ sudo apt-get install liboping-dev
+  *            * to develop: $ sudo apt-get install liboping-dev libcurl4-openssl-dev
   *
   * To avoid having to run it as root (sudo or setuid)
   *   you can simply "setcap cap_net_raw=ep /opt/sbench/sbench"
@@ -856,7 +866,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
             ping_iterator_next(iter)) {
       char hostname[100];
       double latency;
-      size_t len;
+      size_t len; // format for size_t : %zu
       
       // if(verbose) printf("ping_iterator_get() #%d: success\n", i);
       len = 100;
@@ -901,7 +911,7 @@ int main (int argc, char *argv[]) {
   getOpts(argc, argv, &params, &thisType, &verbose);
   parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
   if(thisType == CPU) {
-    r = doCpuTest(times, verbose);
+    r = doCpuTest(times, nThreads, verbose);
     printf("%f s\n", r);
     exit(0);
   }
