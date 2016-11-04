@@ -40,6 +40,15 @@
 
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
+/* arguments for cpu tests */
+typedef struct cpu_args {
+  unsigned long  times;
+  int            verbose;
+  unsigned int   threadNumber;
+  double         delta; // return value
+} cpu_args_struct;
+
+
 /* arguments for disk read */
 typedef struct dw_args {
   unsigned long sizeInBytes;
@@ -67,6 +76,7 @@ void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
   printf("Usage:\n");
   printf("sbench (-v) -t cpu        -p <times>\n");
+  printf("sbench (-v) -t cpu        -p <times,numThreads>\n");
   printf("sbench (-v) -t mem        -p <times,sizeInBytes>\n");
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
   printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,numThreads,folderName>\n");
@@ -78,8 +88,8 @@ void usage() {
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
   printf("  sbench -t mem -p 10,104857600\n");
-  printf("* To do silly calculus (2 pows) 100E6 times (it takes ~6E6/s):\n");
-  printf("  sbench -t cpu -p 10000000\n");
+  printf("* To have 2 threads doing 100E6 silly calculus (2 pows):\n");
+  printf("  sbench -t cpu -p 10000000,2\n");
   printf("* To create 4 threads each writing 10 MiB in a file in 4k blocks:\n");
   printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n");
   printf("* To read sequentially 100 MiB from a file in 4k blocks:\n");
@@ -134,12 +144,15 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       fprintf(stderr, "Params must be in \"num,num\" format\n");
       usage();
     }
-    if(sscanf(params, "%lu,%u", times, nThreads) != 1) {
-      fprintf(stderr, "Params must be in \"num,num\" format\n");
-      usage();
+    if(sscanf(params, "%lu,%u", times, nThreads) != 2) {
+      *nThreads = 1;
+      if(sscanf(params, "%lu", times) != 1) {
+        fprintf(stderr, "Params must be in \"num,num\" format\n");
+        usage();
+      }
     }
     if(verbose)
-      printf("type=cpu, times=%lu verbose=%d\n", *times, verbose);
+      printf("type=cpu, times=%lu, nThreads=%u, verbose=%d\n", *times, *nThreads, verbose);
   }
   else if(thisType == MEM) {
     if(sscanf(params, "%lu,%lu", times, sizeInBytes) != 2) {
@@ -269,21 +282,64 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
   }
 }
 
-
-double doCpuTest(unsigned long times, int nThreads, int verbose) {
+void *cpuTestStartupRoutine(void *arg) {
   struct timeval beginning, end;
-  double delta;
+  cpu_args_struct *args = (cpu_args_struct *) arg;
 
-  if(verbose) printf("CPU test:\n");
+  // output is not serialized, so verbose mode will have an ugly look
+  if(args->verbose)
+    printf("thread #%d that will perform %lu calculus", 
+      args->threadNumber,
+      args->times);
 
+  // Let's work:
   gettimeofday(&beginning, NULL);
   double x=2;
-  for(long int i = 0; i < times; i++) {
+  for(long int i = 0; i < args->times; i++) {
     x=pow(x, x);
     x=pow(x, 1/(x-1));
   }
   gettimeofday(&end, NULL);
-  delta=timeval_diff(&end, &beginning);
+  args->delta=timeval_diff(&end, &beginning);
+  return NULL;
+}
+
+double doCpuTest(unsigned long times, int nThreads, int verbose) {
+  char msg[100];
+  double delta = 0;
+
+  // Thread creation
+  pthread_t       *threads = (pthread_t *)       malloc(nThreads * sizeof(pthread_t));
+  cpu_args_struct *args    = (cpu_args_struct *) malloc(nThreads * sizeof(cpu_args_struct));
+
+  if(verbose) printf("Let's create %d threads:\n", nThreads);
+
+  // let's fill the args for the n-th thread.
+  for (int i = 0; i < nThreads; i++) {
+    args[i].times        = times,
+    args[i].verbose      = verbose,
+    args[i].threadNumber = i;
+    args[i].delta        = 0.;
+
+    if(pthread_create(&(threads[i]), NULL, cpuTestStartupRoutine, (void *) &args[i]) ) {
+      sprintf(msg, "Can't create the %d-th thread", i);
+      myAbort(msg);
+    }
+  }
+
+  if(verbose) printf("Threads created, waiting for completion...:\n");
+  for (int i = 0; i < nThreads; i++) {
+    if(pthread_join(threads[i], NULL)) {
+      sprintf(msg, "Can't join to %d-th thread", i);
+      myAbort(msg);
+    }
+    if(verbose) printf("The thread #%d has finished with delta = %f\n", i, args[i].delta);
+    delta+=args[i].delta;
+  }
+  delta/=nThreads; // Average!!
+  free(threads);
+  free(args);
+
   return delta;
 }
 
@@ -458,6 +514,7 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned 
     if(verbose) printf("The thread #%d has finished with delta = %f\n", i, args[i].delta);
     delta+=args[i].delta;
   }
+  delta/=nThreads; // Average!!
   free(threads);
   free(args);
 
@@ -637,6 +694,7 @@ printf("<<<<<<<<<<<<shuffle\n");
     if(verbose) printf("Thread #%d finished with delta = %f\n", i, args[i].delta);
     delta+=args[i].delta;
   }
+  delta/=nThreads; // Average!!
   free(threads);
   free(args);
   return delta;
