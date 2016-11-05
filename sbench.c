@@ -34,6 +34,7 @@
 #include <curl/curl.h>    // libcurl
 #include <oping.h>        // octo's ping library
 #include <pthread.h>      // pthread_create ...
+#include <stdint.h>       // intmax_t
 
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
 #define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
@@ -173,7 +174,17 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     if(verbose)
       printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, verbose);
   }
-  else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
+  else if(thisType == DISK_R_SEQ) {
+    *nThreads = 1;
+    if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, targetFileName) != 3) {
+      fprintf(stderr, "Params must be in \"num,num,path\" format\n");
+      usage();
+    }
+    if(verbose) {
+      printf("type=disk_r_seq, times=%lu, sizeInBytes=%lu, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, targetFileName, verbose);
+    }
+  }
+  else if(thisType == DISK_R_RAN) {
     if(sscanf(params, "%lu,%lu,%u,%s", times, sizeInBytes, nThreads, targetFileName) != 4) {
       *nThreads = 1;
       if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, targetFileName) != 3) {
@@ -182,16 +193,11 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
     if(verbose) {
-      if(thisType == DISK_R_SEQ) {
-        printf("type=disk_r_seq, times=%lu, sizeInBytes=%lu, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, targetFileName, verbose);
-      }
-      else if(thisType == DISK_R_RAN) {
-        printf("type=disk_r_ran, times=%lu, sizeInBytes=%lu, nThreads=%u, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, targetFileName, verbose);
-      }
+      printf("type=disk_r_ran, times=%lu, sizeInBytes=%lu, nThreads=%u, targetFileName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, targetFileName, verbose);
     }
   }
   else if(thisType == HTTP_GET) {
-    if(sscanf(params, "%s,%s", httpRefFileBasename, url) != 2) {
+    if(sscanf(params, "%[^,],%s", httpRefFileBasename, url) != 2) {
       fprintf(stderr, "Params must be in \"refName,url\" format\n");
       usage();
     }
@@ -407,13 +413,17 @@ void *diskWriteStartupRoutine(void *arg) {
 
   // Let's work:
 
-  // The file cannot pre-exist (we won't overwrite!)
   sprintf((char *) fileName, "%s/disk_w.out.%d", args->folderName, args->threadNumber);
+
+/*
+ * Ok, we'll overwrite
+ *
   if(access(fileName, F_OK) != -1 ) {
     sprintf(msg, "Ensure that the target file %s doesn't exist previously",
       fileName);
     myAbort(msg);
   }
+*/
 
   // Allocate RAM for the block of sizeInBytes bytes
   buffer=malloc(args->sizeInBytes);
@@ -426,8 +436,8 @@ void *diskWriteStartupRoutine(void *arg) {
     myAbort(msg);
   }
 
-  // open
-  fd = open(fileName, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+  // open creating or truncating
+  fd = open(fileName, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR);
   if(fd == -1) {
     sprintf(msg, "Can't open the target file %s for writing", fileName);
     myAbort(msg);
@@ -477,11 +487,18 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned 
   char msg[100];
   double delta = 0;
 
-  // The folder must pre-exist
   struct stat s = {0};
-  if(stat(folderName, &s) != 0 || ! S_ISDIR(s.st_mode))  {
-    sprintf(msg, "%s must exist previously and must be a folder", folderName);
-    myAbort(msg);
+  if(stat(folderName, &s) == 0)  {
+    if(! S_ISDIR(s.st_mode))  {
+      sprintf(msg, "%s must be a folder", folderName);
+      myAbort(msg);
+    }
+  }
+  else {
+    if(mkdir(folderName, 0700) != 0) {
+      sprintf(msg, "Can't create the folder %s", folderName);
+      myAbort(msg);
+    }
   }
 
   // Thread creation
@@ -646,18 +663,15 @@ double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned lo
   }
   shuffle(blocks, times * nThreads);
 
-printf("despŕes del shuffle\n");
-for(unsigned long i = 0; i < times * nThreads; i++) {
-printf("%lu = %lu\n", i, blocks[i]);
-}
-printf("<<<<<<<<<<<<shuffle\n");
-
   // check file size
   struct stat s;
   stat(targetFileName, &s);
   if(s.st_size < times*nThreads*sizeInBytes) {
     // format: %jd (intmax_t) for off_t
-    sprintf(msg, "The size of the file %s is %jd and must be greater or equal to %lu*%d*%lu bytes", targetFileName, (intmax_t) s.st_size, times, nThreads, sizeInBytes);
+    sprintf(msg, "The size of the file %s is %jd bytes" \
+                 " and must be greater or equal to %lu*%d*%lu bytes",
+                 targetFileName, (intmax_t) s.st_size, times,
+                 nThreads, sizeInBytes);
     myAbort(msg);
   }
 
@@ -736,7 +750,10 @@ int compare(FILE *fp1, FILE *fp2) {
 
 
 /**
-  * https://curl.haxx.se/libcurl/c/
+  * Get a file by HTTP GET, but will not follow redirections,
+  * because it would add latency unnecessarily and the results would get biased
+  * 
+  * Done using libcurl: https://curl.haxx.se/libcurl/c/
   */
 double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose) {
   CURL *curl;
