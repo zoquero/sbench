@@ -81,37 +81,58 @@ typedef struct dr_args {
 void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
   printf("Usage:\n");
-  printf("sbench (-v) -t cpu        -p <times>\n");
-  printf("sbench (-v) -t cpu        -p <times,numThreads>\n");
-  printf("sbench (-v) -t mem        -p <times,sizeInBytes>\n");
-  printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,folderName>\n");
-  printf("sbench (-v) -t disk_w     -p <times,sizeInBytes,numThreads,folderName>\n");
-  printf("sbench (-v) -t disk_r_seq -p <times,sizeInBytes,fileName>\n");
-  printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,fileName>\n");
-  printf("sbench (-v) -t disk_r_ran -p <times,sizeInBytes,numThreads,fileName>\n");
-  printf("sbench (-v) -t ping       -p <times,sizeInBytes,dest>\n");
-  printf("sbench (-v) -t http_get   -p <httpRef,url>\n");
+  printf("sbench (-v) -t cpu        "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times>\n");
+  printf("sbench (-v) -t cpu        "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,numThreads>\n");
+  printf("sbench (-v) -t mem        "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes>\n");
+  printf("sbench (-v) -t disk_w     "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,folderName>\n");
+  printf("sbench (-v) -t disk_w     "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,numThreads,folderName>\n");
+  printf("sbench (-v) -t disk_r_seq "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,fileName>\n");
+  printf("sbench (-v) -t disk_r_ran "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,fileName>\n");
+  printf("sbench (-v) -t disk_r_ran "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,numThreads,fileName>\n");
+  printf("sbench (-v) -t ping       "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <times,sizeInBytes,dest>\n");
+  printf("sbench (-v) -t http_get   "
+         "(-w warnThreshold -c critThreshold) "
+         "-p <httpRef,url>\n");
   printf("\nExamples:\n");
-  printf("* To allocate&commit 10 MiB of RAM and memset it 10 times:\n");
-  printf("  sbench -t mem -p 10,104857600\n");
+  printf("* To allocate&commit 10 MiB of RAM and memset it 10 times\n"
+         "      and get a response in nagios plugin-like format:\n");
+  printf("  sbench -t mem -p 10,104857600 -w 0.3 -c 0.5\n\n");
   printf("* To have 2 threads doing 100E6 silly calculus (2 pows):\n");
-  printf("  sbench -t cpu -p 10000000,2\n");
+  printf("  sbench -t cpu -p 10000000,2\n\n");
   printf("* To create 4 threads each writing 10 MiB in a file in 4k blocks:\n");
-  printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n");
+  printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n\n");
   printf("* To read sequentially 100 MiB from a file in 4k blocks:\n");
-  printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n");
+  printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n\n");
   printf("* To read by random access 100 MiB from a file\n");
   printf("      by 2 threads in 4k blocks:\n");
-  printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n");
+  printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n\n");
   printf("* To get the mean round-trip time sending\n");
   printf("      4 ICMP echo request to ahost.adomain.net:\n");
-  printf("  sbench -t ping -p 4,56,ahost.adomain.net\n");
+  printf("  sbench -t ping -p 4,56,ahost.adomain.net\n\n");
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("      and to compare it with the reference:\n");
   printf("      file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
-  printf("  sbench -t http_get -p my_ref_file,http://www.test.com/file\n");
+  printf("  sbench -t http_get -p my_ref_file,http://www.test.com/file\n\n");
   printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
-  exit(1);
+  exit(EXIT_CODE_CRITICAL);
 }
 
 void myAbort(char* msg) {
@@ -230,13 +251,19 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
   extern int optind, opterr, optopt;
   opterr = 0;
 
+  if(argc == 2 && strcmp(argv[1], "-h") == 0) {
+    usage();
+  }
   if(argc < 5) {
     fprintf(stderr, "Missing parameters\n");
     usage();
   }
 
-  while ((c = getopt (argc, argv, ":t:p:vw:c:")) != -1) {
+  while ((c = getopt (argc, argv, ":ht:p:vw:c:")) != -1) {
     switch (c) {
+      case 'h':
+        usage();
+        break;
       case 't':
         if(optarg == NULL) {
           fprintf (stderr, "Option -%c requires an argument\n", c);
@@ -960,7 +987,8 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   *
   * @seeAlso https://github.com/octo/liboping/
   */
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int verbose) {
+float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+             int verbose) {
   pingobj_t *ping;
   pingobj_iter_t *iter;
   char msg[100];
@@ -969,7 +997,8 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
   size_t successfullResponses = 0;
   double averageLatency = 0;
 
-  if(verbose) printf("Sending %lu ICMP echo request paquets %lu bytes-long to %s\n",times, sizeInBytes, dest);
+  if(verbose) printf("Sending %lu ICMP echo request paquets "
+                     "%lu bytes-long to %s\n",times, sizeInBytes, dest);
   
   if((ping = ping_construct()) == NULL) {
     sprintf(msg, "ping_construct: failed\n");
@@ -979,7 +1008,10 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
   
   if(ping_host_add(ping, dest) < 0) {
     const char *errMsg = ping_get_error(ping);
-    sprintf(msg, "ping_host_add(%s): failed: %s. If the opperation is not permitted you could use something like \"sudo setcap cap_net_raw=ep\" on your executable\n", dest, errMsg);
+    sprintf(msg, "ping_host_add(%s): failed: %s. "
+                 "If 'the operation is not permitted' you could use "
+                 "something like \"sudo setcap cap_net_raw=ep\" "
+                 "on your executable\n", dest, errMsg);
     myAbort(msg);
   }
   if(verbose) printf("ping_host_add(): success\n");
