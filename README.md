@@ -30,6 +30,12 @@ You can use it to extract a simple baseline of your systems (on idle!), so that 
 ## Use wisely on production environments
 Take care when using it. Having several threads writing on a file can generate hundreds of IOPS that can affect negatively the performance of other systems. Fortunately you can adjust finely the tests.
 
+# Command line interface 
+You'll find help simply running the executable without arguments. It's esasy to use.
+
+## Nagios plugin
+Using the command line interface you can set threshold parameters and the output will then be nagios plugin-like, so that you will be able to integrate it with your nagios-compatible monitoring system. Remember that with great power there must also come great responsibility :) be awared again that you may induce heavy load and you could affect the performance of your systems.
+
 # Platforms
 It has been tested on Ubuntu Linux 16.04, but surely is portable to other platforms because just uses POSIX API, liboping and libcurl.
 
@@ -39,4 +45,5 @@ Let me add a logical notice that I release myself from responsibility for any pr
 # Source
 It's source can be found at GitHub: [https://github.com/zoquero/simplebenchmark/](https://github.com/zoquero/simplebenchmark/).
 
-Hope it helps!
+I hope you'll find it useful.
+
