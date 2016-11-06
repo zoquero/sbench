@@ -166,7 +166,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       usage();
     }
     if(verbose)
-      printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
+      printf("type=mem, times=%lu, sizeInBytes=%lu, warnLevel=%lu, critLevel=%lu, verbose=%d\n", *times, *sizeInBytes, warn, crit, verbose);
   }
   else if(thisType == DISK_W) {
     if(sscanf(params, "%lu,%lu,%u,%s", times, sizeInBytes, nThreads, folderName) != 4) {
@@ -177,7 +177,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
     if(verbose)
-      printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, verbose);
+      printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s, warnLevel=%lu, critLevel=%lu, verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, warn, crit, verbose);
   }
   else if(thisType == DISK_R_SEQ) {
     *nThreads = 1;
@@ -1057,8 +1057,18 @@ int main (int argc, char *argv[]) {
   }
   else if(thisType == DISK_W) {
     r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(r >= crit) {
+      printf("DiskWrite Critical = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_CRITICAL);
+    }
+    else if(r >= warn) {
+      printf("DiskWrite Warning = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_WARNING);
+    }
+    else {
+      printf("DiskWrite OK = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
     r = doDiskReadTest(thisType, sizeInBytes, times, nThreads, targetFileName, verbose);
