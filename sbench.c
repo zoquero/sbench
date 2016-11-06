@@ -39,6 +39,11 @@
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
 #define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
 
+#define EXIT_CODE_OK       0
+#define EXIT_CODE_WARNING  1
+#define EXIT_CODE_CRITICAL 2
+#define EXIT_CODE_UNKNOWN  3
+
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
 /* arguments for cpu tests */
@@ -111,7 +116,7 @@ void usage() {
 
 void myAbort(char* msg) {
   fprintf(stderr, "Error: %s\n", msg);
-  exit(1);
+  exit(EXIT_CODE_CRITICAL);
 }
 
 /**
@@ -139,7 +144,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest, double warn, double crit) {
   if(thisType == CPU) {
     if(strlen(params) > 19) {
       fprintf(stderr, "Params must be in \"num,num\" format\n");
@@ -153,7 +158,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
     if(verbose)
-      printf("type=cpu, times=%lu, nThreads=%u, verbose=%d\n", *times, *nThreads, verbose);
+      printf("type=cpu, times=%lu, nThreads=%u, warnLevel=%f, critLevel=%f, verbose=%d\n", *times, *nThreads, warn, crit, verbose);
   }
   else if(thisType == MEM) {
     if(sscanf(params, "%lu,%lu", times, sizeInBytes) != 2) {
@@ -161,7 +166,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       usage();
     }
     if(verbose)
-      printf("type=mem, times=%lu, sizeInBytes=%lu, verbose=%d\n", *times, *sizeInBytes, verbose);
+      printf("type=mem, times=%lu, sizeInBytes=%lu, warnLevel=%f, critLevel=%f, verbose=%d\n", *times, *sizeInBytes, warn, crit, verbose);
   }
   else if(thisType == DISK_W) {
     if(sscanf(params, "%lu,%lu,%u,%s", times, sizeInBytes, nThreads, folderName) != 4) {
@@ -172,7 +177,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
     if(verbose)
-      printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, verbose);
+      printf("type=disk_w, times=%lu, sizeInBytes=%lu, nThreads=%d, folderName=%s, warnLevel=%f, critLevel=%f, verbose=%d\n", *times, *sizeInBytes, *nThreads, folderName, warn, crit, verbose);
   }
   else if(thisType == DISK_R_SEQ) {
     *nThreads = 1;
@@ -219,7 +224,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
 }
 
 
-void getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose) {
+void getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit) {
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -230,7 +235,7 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
     usage();
   }
 
-  while ((c = getopt (argc, argv, "t:p:v")) != -1) {
+  while ((c = getopt (argc, argv, ":t:p:vw:c:")) != -1) {
     switch (c) {
       case 't':
         if(optarg == NULL) {
@@ -273,6 +278,18 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
       case 'v':
         *verbose = 1;
         break;
+      case 'w':
+        if(sscanf(optarg, "%lf", warn) != 1) {
+          fprintf (stderr, "Option -%c requires an argument\n", c);
+          usage();
+        }
+        break;
+      case 'c':
+        if(sscanf(optarg, "%lf", crit) != 1) {
+          fprintf (stderr, "Option -%c requires an argument\n", c);
+          usage();
+        }
+        break;
       case '?':
         if (optopt == 'p')
           fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -282,12 +299,36 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
           fprintf (stderr, "Unknown option character `\\x%x'.\n", optopt);
         usage();
       default:
-        fprintf (stderr, "Error in command line parameters\n");
+        fprintf (stderr,
+          "Wrong command line arguments, probably a parameter without data\n");
         usage();
     }
   }
+  // If you set warn or crit levels then you should set both
+  if( (*warn == -1) != (*crit == -1) ) {
+    fprintf (stderr, "If you set warn level then you must also set critical level and vice versa\n");
+    usage();
+  }
+  // If you haven't set warn nor crit levels then you don't want a nagios plugin-like output
+  if( (*warn == -1) || (*crit == -1) ) {
+    if(*verbose)
+      printf("You prefer simple output, not nagios-like\n");
+    *nagiosPluginOutput=0;
+  }
+  else
+    if(*verbose)
+      printf("You prefer nagios-like output\n");
 }
 
+  /**
+    * Simple way to have a CPU busy for a while.
+    * It just does simple floating-point operations
+    * (sums, substractions, powers and divisions).
+    * 
+    * If you are looking for a more complex CPU tests
+    * then you may be looking for specs like these: https://www.spec.org/cpu/
+    * 
+    */
 void *cpuTestStartupRoutine(void *arg) {
   struct timeval beginning, end;
   cpu_args_struct *args = (cpu_args_struct *) arg;
@@ -310,6 +351,13 @@ void *cpuTestStartupRoutine(void *arg) {
   return NULL;
 }
 
+/**
+  * Waste some CPU cycles and return the number of econd sto do it
+  * @param times Number of times that each thread has to calculate
+  * @param nThreads Number of threads
+  * @param verbose if verbose
+  * @return double Average time that took each thread to do it
+  */
 double doCpuTest(unsigned long times, int nThreads, int verbose) {
   char msg[100];
   double delta = 0;
@@ -563,7 +611,7 @@ void *diskReadStartupRoutine(void *arg) {
   unsigned long *positions;
 
   if(args->verbose) printf("Thread #%d started:\n", args->threadNumber);
-  if(args->verbose) printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->sizeInBytes]);
+  if(args->verbose) printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->times] * args->sizeInBytes );
 
   // create the array with positions to read, case DISK_R_RAN
   if(args->type == DISK_R_RAN) {
@@ -596,8 +644,9 @@ void *diskReadStartupRoutine(void *arg) {
     myAbort(msg);
   }
 
-  if(args->verbose) printf("Let's read %lu bytes %lu times from %s\n",
-                args->sizeInBytes, args->times, args->targetFileName);
+  if(args->verbose)
+    printf("Thread #%d will read %lu bytes %lu times from %s\n",
+      args->threadNumber, args->sizeInBytes, args->times, args->targetFileName);
 
   // loop for reading
   gettimeofday(&beginning, NULL);
@@ -614,7 +663,7 @@ void *diskReadStartupRoutine(void *arg) {
     // now can read, current file offset is right, be DISK_R_RAN or DISK_R_SEQ
     ssize_t ret_in = read(fd, buffer, args->sizeInBytes);
     // format: %zd for ssize_t
-    if(args->verbose) printf("Read %zd bytes on %lu-th iteration\n", ret_in, i);
+    if(args->verbose) printf("Thread #%d read %zd bytes on %lu-th iteration\n", args->threadNumber, ret_in, i);
     if(ret_in != args->sizeInBytes) {
       sprintf(msg, "Read just %zd bytes from %s on %lu-th iteration", ret_in, args->targetFileName, i);
       myAbort(msg);
@@ -820,9 +869,14 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
     // Set the url
     curl_easy_setopt(curl, CURLOPT_URL, url);
 
-    // Skip follow redirection, we need a fast final HTTP GET
-    // curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
+    /*
+     * You should use just final URLs and avoid HTTP redirections,
+     * you'll surely agree. If you prefer to hardcode
+     * that this software doesn't allow redirections,
+     * then remove or comment the next line so that
+     * CURLOPT_FOLLOWLOCATION will be disabled (by default):
+     */
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeToFile);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fds);
  
@@ -925,7 +979,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
   
   if(ping_host_add(ping, dest) < 0) {
     const char *errMsg = ping_get_error(ping);
-    sprintf(msg, "ping_host_add(%s): failed. %s\n", dest, errMsg);
+    sprintf(msg, "ping_host_add(%s): failed: %s. If the opperation is not permitted you could use something like \"sudo setcap cap_net_raw=ep\" on your executable\n", dest, errMsg);
     myAbort(msg);
   }
   if(verbose) printf("ping_host_add(): success\n");
@@ -982,50 +1036,145 @@ int main (int argc, char *argv[]) {
   int different = 1;
   char dest[HOST_NAME_MAX];
   double r;
+  int nagiosPluginOutput = 1;
+  double warn = -1., crit = -1.;
 
-  getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
+  getOpts(argc, argv, &params, &thisType, &verbose, &nagiosPluginOutput, &warn, &crit);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest, warn, crit);
   if(thisType == CPU) {
     r = doCpuTest(times, nThreads, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    double avgCalcsPerSecondPerCpu = times/r;
+    if(nagiosPluginOutput) {
+      if(avgCalcsPerSecondPerCpu >= crit) {
+        printf("CPU Critical = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(avgCalcsPerSecondPerCpu >= warn) {
+        printf("CPU Warning = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        exit(EXIT_CODE_WARNING);
+      }
+      else {
+        printf("CPU OK = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      printf("%.2f avg calcs / s per CPU\n", avgCalcsPerSecondPerCpu);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == MEM) {
     r = doMemTest(sizeInBytes, times, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(nagiosPluginOutput) {
+      if(r >= crit) {
+        printf("Mem Critical = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(r >= warn) {
+        printf("Mem Warning = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_WARNING);
+      }
+      else {
+        printf("Mem OK = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      printf("%.2f s\n", r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == DISK_W) {
     r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(nagiosPluginOutput) {
+      if(r >= crit) {
+        printf("DiskWrite Critical = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(r >= warn) {
+        printf("DiskWrite Warning = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_WARNING);
+      }
+      else {
+        printf("DiskWrite OK = %.2f s| time=%.2f\n", r, r);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      printf("%.2f s\n", r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
     r = doDiskReadTest(thisType, sizeInBytes, times, nThreads, targetFileName, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(nagiosPluginOutput) {
+      if(r >= crit) {
+        printf("%sDiskRead Critical = %.6f s| time=%.6f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(r >= warn) {
+        printf("%sDiskRead Warning = %.6f s| time=%.6f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_WARNING);
+      }
+      else {
+        printf("%sDiskRead OK = %.6f s| time=%.6f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      printf("%.6f s\n", r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == HTTP_GET) {
     if(verbose) printf("getting %s by HTTP GET\n", url);
     r = httpGet(url, httpRefFileBasename, &different, verbose);
-    if(different) {
-      printf("Different: %f s\n", r);
-      exit(2);
-    }
-    else {
-      printf("Equal:     %f s\n", r);
-      if(r >= timeoutInMS/1000.) {
-        exit(2);
+
+    if(nagiosPluginOutput) {
+      if(different || r >= crit) {
+        printf("%sHttpGet Critical = %.3f s| time=%.3f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(r >= warn) {
+        printf("%sHttpGet Warning = %.3f s| time=%.3f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_WARNING);
       }
       else {
-        exit(0);
+        printf("%sHttpGet OK = %.3f s| time=%.3f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      if(different) {
+        printf("KO %.3f s\n", r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else {
+        printf("OK %.3f s\n", r);
+        exit(EXIT_CODE_OK);
       }
     }
   }
   else if(thisType == PING) {
     r = doPing(sizeInBytes, times, dest, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(nagiosPluginOutput) {
+      if(r >= crit) {
+        printf("PingRTT Critical = %.1f ms| time_ms=%.1f\n", r, r);
+        exit(EXIT_CODE_CRITICAL);
+      }
+      else if(r >= warn) {
+        printf("PingRTT Warning = %.1f ms| time_ms=%.1f\n", r, r);
+        exit(EXIT_CODE_WARNING);
+      }
+      else {
+        printf("PingRTT OK = %.1f ms| time_ms=%.1f\n", r, r);
+        exit(EXIT_CODE_OK);
+      }
+    }
+    else {
+      printf("%.1f ms\n", r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else {
     myAbort(/* bug */ "Unknown type");
