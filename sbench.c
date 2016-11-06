@@ -979,7 +979,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest, int ver
   
   if(ping_host_add(ping, dest) < 0) {
     const char *errMsg = ping_get_error(ping);
-    sprintf(msg, "ping_host_add(%s): failed. %s\n", dest, errMsg);
+    sprintf(msg, "ping_host_add(%s): failed: %s. If the opperation is not permitted you could use something like \"sudo setcap cap_net_raw=ep\" on your executable\n", dest, errMsg);
     myAbort(msg);
   }
   if(verbose) printf("ping_host_add(): success\n");
