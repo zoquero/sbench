@@ -39,6 +39,11 @@
 #define CURL_REFS_FOLDER "/var/lib/sbench/http_refs"
 #define CURL_TIMEOUT_MS  30000 // 30s for HTTP is ~infinite
 
+#define EXIT_CODE_OK       0
+#define EXIT_CODE_WARNING  1
+#define EXIT_CODE_CRITICAL 2
+#define EXIT_CODE_UNKNOWN  3
+
 enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
 /* arguments for cpu tests */
@@ -111,7 +116,7 @@ void usage() {
 
 void myAbort(char* msg) {
   fprintf(stderr, "Error: %s\n", msg);
-  exit(1);
+  exit(EXIT_CODE_CRITICAL);
 }
 
 /**
@@ -139,7 +144,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest) {
+void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest, unsigned long warn, unsigned long crit) {
   if(thisType == CPU) {
     if(strlen(params) > 19) {
       fprintf(stderr, "Params must be in \"num,num\" format\n");
@@ -153,7 +158,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
       }
     }
     if(verbose)
-      printf("type=cpu, times=%lu, nThreads=%u, verbose=%d\n", *times, *nThreads, verbose);
+      printf("type=cpu, times=%lu, nThreads=%u, warnLevel=%lu, critLevel=%lu, verbose=%d\n", *times, *nThreads, warn, crit, verbose);
   }
   else if(thisType == MEM) {
     if(sscanf(params, "%lu,%lu", times, sizeInBytes) != 2) {
@@ -219,7 +224,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
 }
 
 
-void getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose) {
+void getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose, unsigned long *warn, unsigned long  *crit) {
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -230,7 +235,7 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
     usage();
   }
 
-  while ((c = getopt (argc, argv, "t:p:v")) != -1) {
+  while ((c = getopt (argc, argv, ":t:p:vw:c:")) != -1) {
     switch (c) {
       case 't':
         if(optarg == NULL) {
@@ -273,6 +278,18 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
       case 'v':
         *verbose = 1;
         break;
+      case 'w':
+        if(sscanf(optarg, "%lu", warn) != 1) {
+          fprintf (stderr, "Option -%c requires an argument\n", c);
+          usage();
+        }
+        break;
+      case 'c':
+        if(sscanf(optarg, "%lu", crit) != 1) {
+          fprintf (stderr, "Option -%c requires an argument\n", c);
+          usage();
+        }
+        break;
       case '?':
         if (optopt == 'p')
           fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -282,12 +299,26 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
           fprintf (stderr, "Unknown option character `\\x%x'.\n", optopt);
         usage();
       default:
-        fprintf (stderr, "Error in command line parameters\n");
+        fprintf (stderr,
+          "Wrong command line arguments, probably a parameter without data\n");
         usage();
     }
   }
+  if( (*warn == -1) != (*crit == -1) ) {
+    fprintf (stderr, "If you set warn level then you must also set critical level and vice versa\n");
+    usage();
+  }
 }
 
+  /**
+    * Simple way to have a CPU busy for a while.
+    * It just does simple floating-point operations
+    * (sums, substractions, powers and divisions).
+    * 
+    * If you are looking for a more complex CPU tests
+    * then you may be looking for specs like these: https://www.spec.org/cpu/
+    * 
+    */
 void *cpuTestStartupRoutine(void *arg) {
   struct timeval beginning, end;
   cpu_args_struct *args = (cpu_args_struct *) arg;
@@ -310,6 +341,13 @@ void *cpuTestStartupRoutine(void *arg) {
   return NULL;
 }
 
+/**
+  * Waste some CPU cycles and return the number of econd sto do it
+  * @param times Number of times that each thread has to calculate
+  * @param nThreads Number of threads
+  * @param verbose if verbose
+  * @return double Average time that took each thread to do it
+  */
 double doCpuTest(unsigned long times, int nThreads, int verbose) {
   char msg[100];
   double delta = 0;
@@ -982,13 +1020,25 @@ int main (int argc, char *argv[]) {
   int different = 1;
   char dest[HOST_NAME_MAX];
   double r;
+  unsigned long warn = -1, crit = -1;
 
-  getOpts(argc, argv, &params, &thisType, &verbose);
-  parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest);
+  getOpts(argc, argv, &params, &thisType, &verbose, &warn, &crit);
+  parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest, warn, crit);
   if(thisType == CPU) {
     r = doCpuTest(times, nThreads, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    double avgCalcsPerSecondPerCpu = times/r;
+    if(avgCalcsPerSecondPerCpu >= crit) {
+      printf("CPU Critical = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+      exit(EXIT_CODE_CRITICAL);
+    }
+    else if(avgCalcsPerSecondPerCpu >= warn) {
+      printf("CPU Warning = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+      exit(EXIT_CODE_WARNING);
+    }
+    else {
+      printf("CPU ok = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == MEM) {
     r = doMemTest(sizeInBytes, times, verbose);
