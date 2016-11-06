@@ -4,7 +4,7 @@ Lightweight program written in C to do simple benchmarks
 Measures how systems perform doing these tests:
 
 * Memory: allocate, commit and set
-* CPU: multi-threaded floating-point operations (simply sum, multiply and divide)
+* CPU: multi-threaded floating-point operations (simply sums, substractions, powers and divisions)
 * Disk:
     * Sequential read
     * Sequential write
