@@ -1036,14 +1036,24 @@ int main (int argc, char *argv[]) {
       exit(EXIT_CODE_WARNING);
     }
     else {
-      printf("CPU ok = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+      printf("CPU OK = %.2f avg calcs / s per CPU| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
       exit(EXIT_CODE_OK);
     }
   }
   else if(thisType == MEM) {
     r = doMemTest(sizeInBytes, times, verbose);
-    printf("%f s\n", r);
-    exit(0);
+    if(r >= crit) {
+      printf("Mem Critical = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_CRITICAL);
+    }
+    else if(r >= warn) {
+      printf("Mem Warning = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_WARNING);
+    }
+    else {
+      printf("Mem OK = %.2f s| time=%.2f\n", r, r);
+      exit(EXIT_CODE_OK);
+    }
   }
   else if(thisType == DISK_W) {
     r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose);
