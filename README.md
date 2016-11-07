@@ -31,10 +31,17 @@ You can use it to extract a simple baseline of your systems (on idle!), so that 
 Take care when using it. Having several threads writing on a file can generate hundreds of IOPS that can affect negatively the performance of other systems. Fortunately you can adjust finely the tests.
 
 # Command line interface 
-You'll find help simply running the executable without arguments. It's esasy to use.
+It's esasy to use. You'll find help:
+* man 1 sbench
+* running the executable without arguments or adding "-h".
 
 ## Nagios plugin
 Using the command line interface you can set threshold parameters and the output will then be nagios plugin-like, so that you will be able to integrate it with your nagios-compatible monitoring system. Remember that with great power there must also come great responsibility :) be awared again that you may induce heavy load and you could affect the performance of your systems.
+
+# Build and install
+make
+
+copy executable and man page where needed
 
 # Platforms
 It has been tested on Ubuntu Linux 16.04, but surely is portable to other platforms because just uses POSIX API, liboping and libcurl.
