@@ -9,7 +9,7 @@ EXECUTABLE=sbench
 all: $(EXECUTABLE)
 
 $(EXECUTABLE): sbench.o
-	$(CC) -o $(EXECUTABLE) sbench.c $(LDFLAGS)
+	$(CC) -o $(EXECUTABLE) sbenchfuncs.c sbench.c $(LDFLAGS)
 
 clean:
 	rm *.o $(EXECUTABLE)

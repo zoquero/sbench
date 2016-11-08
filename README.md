@@ -20,7 +20,7 @@ Measures how systems perform doing these tests:
 # Motivation
 You can find suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but I just need some simple and reproducible tests that can be easily understood. For example, when testing CPU it just performs some simple floating-point operations that any i386 could do (sums, substractions, powers and divisions). If you are looking for a more complex CPU tests then you may be looking for specs like the ones from [SPEC CPU Benchmark](https://www.spec.org/cpu/).
 
-Ok, but *why can I need it*? For **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs you always can read some data on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready* and *Co-Stop* or network and storage latencies) that you will not be able to read on a public cloud.
+Ok, but *why can I need it*? For **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs you always can read some data on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready* and *Co-Stop*, balooning or network and storage latencies) that you will not be able to read on a public cloud.
 
 Ok, but *I already use a benchmark suite to test it all*? Nice, keep on using it. Mmmmmm, but, how long does it takes for you to run those tests? Do you know exactly what are those tests doing? And, can you adjust that suite so that it doesn't induce a heavy load-test that could affect your other systems?
 
