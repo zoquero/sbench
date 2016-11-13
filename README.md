@@ -41,12 +41,12 @@ Using the command line interface you can set threshold parameters and the output
 # Build and install
 
 * ubuntu packages for building: 
-    * libcurl4-openssl-dev
-    * liboping-dev
+    * libcurl4-openssl-dev  (OpenSUSE: libcurl-devel ?)
+    * liboping-dev          (OpenSUSE: liboping-devel | liboping-devel-32bit ?)
 * ubuntu packages for running: 
-    * libcurl3
-    * libcurl3-gnutls
-    * liboping0
+    * libcurl3              (OpenSUSE: libcurl4 | libcurl4-32bit ?)
+    * libcurl3-gnutls       (OpenSUSE: ??)
+    * liboping0             (OpenSUSE: liboping0 | liboping0-32bit ?)
 
 How to build:
 * make
