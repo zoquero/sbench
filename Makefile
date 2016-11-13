@@ -1,9 +1,15 @@
 # Makefile for sbench
+
+ifdef PING_ENABLE
+PING_ENABLE_COMPILE=-DOPING_ENABLED
+PING_ENABLE_LINK=-loping -DOPING_ENABLED
+endif
+
 CC=gcc
 ## c99 vs gnu99: c99 generates warnings with usleep, gnu99 doesn't
-CFLAGS=-Wall -pedantic -std=gnu99
+CFLAGS=-Wall -pedantic -std=gnu99 $(PING_ENABLE_COMPILE)
 ## libcurl:      to compile and test in Ubuntu I insstalled libcurl4-openssl-dev libcurl3
-LDFLAGS=-lm -lcurl -loping -lpthread -std=gnu99
+LDFLAGS=-lm -lcurl -lpthread -std=gnu99 $(PING_ENABLE_LINK)
 EXECUTABLE=sbench
 
 all: $(EXECUTABLE)

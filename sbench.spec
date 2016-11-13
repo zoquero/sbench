@@ -43,9 +43,11 @@ Requires:      liboping0
 %if 0%{?suse_version}
 
 BuildRequires: libcurl-devel
-BuildRequires: liboping-devel
+# octo's ping library is not available on SLES
+# BuildRequires: liboping-devel 
 Requires:      libcurl4
-Requires:      liboping0
+# octo's ping library is not available on SLES
+# Requires:      liboping0
 
 %endif
 
@@ -61,7 +63,11 @@ Simple benchmarks of CPU, memory, disk and network.
 
 %build
 %configure
+%if 0%{?ubuntu_version}
+make %{?_smp_mflags} PING_ENABLE=y
+%else
 make %{?_smp_mflags}
+%endif
 
 %install
 rm -rf $RPM_BUILD_ROOT
