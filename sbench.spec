@@ -14,13 +14,11 @@ Name:      sbench
 Version:   %{sbench_version}
 Release:   1%{?dist}
 Source0:   %{name}-%{version}.tar.gz
-## Source: http://...//...-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}
 # BuildRoot: %{_tmppath}/%{name}-%{version}-build
 License:   GPLv3 (GNU General Public License v3)
 Group:     Applications/System
 URL:       https://github.com/zoquero/simplebenchmark/
-Provides:  %{name}
 Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 
 #########################################################################################
@@ -28,6 +26,8 @@ Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 #########################################################################################
 %if 0%{?ubuntu_version}
 
+Description: Simple benchmarks of CPU, memory, disk and network.
+More info can be found here: https://github.com/zoquero/simplebenchmark
 BuildRequires: libcurl4-openssl-dev
 BuildRequires: liboping-dev
 Requires:      libcurl3
@@ -45,18 +45,28 @@ Requires:      liboping0
 BuildRequires: libcurl-devel
 # octo's ping library is not available on SLES
 # BuildRequires: liboping-devel 
+
+%ifarch i386 i486 i586 i686 athlon
+Requires:      libcurl4-32bit
+# octo's ping library is not available on SLES
+# Requires:      liboping0
+%endif
+
+%ifarch x86_64
 Requires:      libcurl4
 # octo's ping library is not available on SLES
 # Requires:      liboping0
-
 %endif
 
+%endif
 
 # Requires(post): info
 # Requires(preun): info
 
 %description 
+
 Simple benchmarks of CPU, memory, disk and network.
+More info can be found here: https://github.com/zoquero/simplebenchmark
 
 %prep
 %setup -q
