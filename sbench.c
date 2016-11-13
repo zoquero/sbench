@@ -52,9 +52,11 @@ void usage() {
   printf("sbench (-v) -t disk_r_ran "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,numThreads,fileName>\n");
+#ifdef OPING_ENABLED
   printf("sbench (-v) -t ping       "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,dest>\n");
+#endif // OPING_ENABLED
   printf("sbench (-v) -t http_get   "
          "(-w warnThreshold -c critThreshold) "
          "-p <httpRef,url>\n");

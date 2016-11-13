@@ -23,11 +23,32 @@ URL:       https://github.com/zoquero/simplebenchmark/
 Provides:  %{name}
 Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 
+#########################################################################################
+# SuSE, openSUSE
+#########################################################################################
+%if 0%{?ubuntu_version}
+
 BuildRequires: libcurl4-openssl-dev
 BuildRequires: liboping-dev
 Requires:      libcurl3
 Requires:      libcurl3-gnutls
 Requires:      liboping0
+
+%endif
+
+
+#########################################################################################
+# SuSE, openSUSE
+#########################################################################################
+%if 0%{?suse_version}
+
+BuildRequires: libcurl-devel
+BuildRequires: liboping-devel
+Requires:      libcurl4
+Requires:      liboping0
+
+%endif
+
 
 # Requires(post): info
 # Requires(preun): info
