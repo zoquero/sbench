@@ -39,9 +39,18 @@ It's esasy to use. You'll find help:
 Using the command line interface you can set threshold parameters and the output will then be nagios plugin-like, so that you will be able to integrate it with your nagios-compatible monitoring system. Remember that with great power there must also come great responsibility :) be awared again that you may induce heavy load and you could affect the performance of your systems.
 
 # Build and install
-make
 
-copy executable and man page where needed
+* ubuntu packages for building: 
+    * libcurl4-openssl-dev  (OpenSUSE: libcurl-devel ?)
+    * liboping-dev          (OpenSUSE: liboping-devel | liboping-devel-32bit ?)
+* ubuntu packages for running: 
+    * libcurl3              (OpenSUSE: libcurl4 | libcurl4-32bit ?)
+    * libcurl3-gnutls       (OpenSUSE: ??)
+    * liboping0             (OpenSUSE: liboping0 | liboping0-32bit ?)
+
+How to build:
+* make
+* copy executable and man page where needed
 
 # Platforms
 It has been tested on Ubuntu Linux 16.04, but surely is portable to other platforms because just uses POSIX API, liboping and libcurl.

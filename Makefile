@@ -13,3 +13,8 @@ $(EXECUTABLE): sbench.o
 
 clean:
 	rm *.o $(EXECUTABLE)
+
+install:
+	mkdir -p $(DESTDIR)
+	install -m 0755 $(EXECUTABLE) $(DESTDIR)
+	install -m 0644 doc/sbench.1.gz $(MANDIR)
