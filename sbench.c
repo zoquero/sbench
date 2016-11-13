@@ -52,9 +52,11 @@ void usage() {
   printf("sbench (-v) -t disk_r_ran "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,numThreads,fileName>\n");
+#ifdef OPING_ENABLED
   printf("sbench (-v) -t ping       "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,dest>\n");
+#endif // OPING_ENABLED
   printf("sbench (-v) -t http_get   "
          "(-w warnThreshold -c critThreshold) "
          "-p <httpRef,url>\n");
@@ -71,9 +73,11 @@ void usage() {
   printf("* To read by random access 100 MiB from a file\n");
   printf("      by 2 threads in 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n\n");
+#ifdef OPING_ENABLED
   printf("* To get the mean round-trip time sending\n");
   printf("      4 ICMP echo request to ahost.adomain.net:\n");
   printf("  sbench -t ping -p 4,56,ahost.adomain.net\n\n");
+#endif // OPING_ENABLED
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("      and to compare it with the reference:\n");
   printf("      file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
@@ -162,6 +166,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     if(verbose)
       printf("type=http_get, httpRefFileBasename=%s, url=%s, verbose=%d\n", httpRefFileBasename, url, verbose);
   }
+#ifdef OPING_ENABLED
   else if(thisType == PING) {
     if(sscanf(params, "%lu,%lu,%s", times, sizeInBytes, dest) != 3) {
       fprintf(stderr, "Params must be in \"times,sizeInBytes,dest\" format\n");
@@ -170,6 +175,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
     if(verbose)
       printf("type=ping, sizeInBytes=%lu, times=%lu, dest=%s, verbose=%d\n", *sizeInBytes, *times, dest, verbose);
   }
+#endif // OPING_ENABLED
   else {
     fprintf(stderr, "Unknown o missing type\n");
     usage();
@@ -216,9 +222,11 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
         else if(strcmp(optarg, "disk_r_ran") == 0) {
           *thisType = DISK_R_RAN;
         }
+#ifdef OPING_ENABLED
         else if(strcmp(optarg, "ping") == 0) {
           *thisType = PING;
         }
+#endif // OPING_ENABLED
         else if(strcmp(optarg, "http_get") == 0) {
           *thisType = HTTP_GET;
         }
@@ -412,6 +420,7 @@ int main (int argc, char *argv[]) {
       }
     }
   }
+#ifdef OPING_ENABLED
   else if(thisType == PING) {
     r = doPing(sizeInBytes, times, dest, verbose);
     if(nagiosPluginOutput) {
@@ -433,6 +442,7 @@ int main (int argc, char *argv[]) {
       exit(EXIT_CODE_OK);
     }
   }
+#endif // OPING_ENABLED
   else {
     myAbort(/* bug */ "Unknown type");
     exit(2);

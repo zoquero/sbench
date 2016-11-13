@@ -5,14 +5,19 @@
  * @author zoquero@gmail.com
  */
 
+#include <unistd.h>       // read, write, fsync, lseek, access
+#include <stdlib.h>       // exit, malloc, free
 #include <string.h>       // memcpy, strlen
 #include <math.h>         // pow
 #include <sys/stat.h>     // stat
 #include <fcntl.h>        // open
 #include <curl/curl.h>    // libcurl
-#include <oping.h>        // octo's ping library
 #include <pthread.h>      // pthread_create ...
 #include <stdint.h>       // intmax_t
+
+#ifdef OPING_ENABLED
+#include <oping.h>        // octo's ping library
+#endif // OPING_ENABLED
 
 #include "sbenchfuncs.h"
 
@@ -659,6 +664,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   return delta;
 }
 
+#ifdef OPING_ENABLED
 /**
   *
   * Ping using Octo's ping library
@@ -738,4 +744,5 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   averageLatency = accumulatedLatency/successfullResponses;
   return averageLatency;
 }
+#endif // OPING_ENABLED
 
