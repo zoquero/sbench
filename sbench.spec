@@ -23,8 +23,8 @@ URL:       https://github.com/zoquero/simplebenchmark/
 Provides:  %{name}
 Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 
-# BuildRequires: libcurl4-openssl-dev
-# BuildRequires: liboping-dev
+BuildRequires: libcurl4-openssl-dev
+BuildRequires: liboping-dev
 Requires:      libcurl3
 Requires:      libcurl3-gnutls
 Requires:      liboping0
