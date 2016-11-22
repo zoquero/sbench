@@ -17,9 +17,9 @@
 #define EXIT_CODE_UNKNOWN  3
 
 #ifdef OPING_ENABLED
-enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
+enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 #else  // OPING_ENABLED
-enum type {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
+enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 #endif // OPING_ENABLED
 
 /* arguments for cpu tests */
@@ -43,7 +43,7 @@ typedef struct dw_args {
 
 /* arguments for disk write */
 typedef struct dr_args {
-  enum type      type;
+  enum btype      type;
   unsigned long  sizeInBytes;
   unsigned long  times;
   char          *targetFileName;
@@ -68,7 +68,7 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned 
 // void shuffle(unsigned long *array, size_t n);
 
 
-double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose);
+double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose);
 
 
 // size_t writeToFile(void *ptr, size_t size, size_t nmemb, FILE *stream);
@@ -80,3 +80,4 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose);
 
 #endif
+

@@ -417,7 +417,7 @@ void *diskReadStartupRoutine(void *arg) {
   * * asks each thread to read "times" of those positions
   * The result is a random concurrent access to that single file.
   */
-double doDiskReadTest(enum type thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose) {
+double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose) {
   char msg[100];
   double delta;
   unsigned long *blocks;
