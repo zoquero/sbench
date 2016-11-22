@@ -101,7 +101,7 @@ unsigned long parseUL(char *str, char *valNameForErrors) {
   return r;
 }
 
-void parseParams(char *params, enum type thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest, double warn, double crit) {
+void parseParams(char *params, enum btype thisType, int verbose, unsigned long *times, unsigned long *sizeInBytes, unsigned int *nThreads, char *folderName, char *targetFileName, char *url, char *httpRefFileBasename, unsigned long *timeoutInMS, char *dest, double warn, double crit) {
   if(thisType == CPU) {
     if(strlen(params) > 19) {
       fprintf(stderr, "Params must be in \"num,num\" format\n");
@@ -183,7 +183,7 @@ void parseParams(char *params, enum type thisType, int verbose, unsigned long *t
 }
 
 
-void getOpts(int argc, char **argv, char **params, enum type *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit) {
+void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit) {
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -290,7 +290,7 @@ void getOpts(int argc, char **argv, char **params, enum type *thisType, int *ver
 int main (int argc, char *argv[]) {
   int  verbose = 0;
   char *params = 0;
-  enum type thisType;
+  enum btype thisType;
   unsigned long sizeInBytes, times;
   unsigned int  nThreads;
   char folderName[PATH_MAX-12];
