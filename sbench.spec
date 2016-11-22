@@ -22,7 +22,7 @@ URL:       https://github.com/zoquero/simplebenchmark/
 Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 
 #########################################################################################
-# SuSE, openSUSE
+# Ubuntu
 #########################################################################################
 %if 0%{?ubuntu_version}
 
@@ -45,6 +45,12 @@ Requires:      liboping0
 BuildRequires: libcurl-devel
 # octo's ping library is not available on SLES
 # BuildRequires: liboping-devel 
+
+
+##
+## ... I can't test it on SLES 11 SP4 32 b because can't I install
+## sle-sdk-release packages following https://www.novell.com/support/kb/doc.php?id=7015337
+##
 
 %ifarch i386 i486 i586 i686 athlon
 Requires:      libcurl4-32bit
