@@ -33,4 +33,14 @@ clean:
 install:
 	mkdir -p $(DESTDIR)
 	install -m 0755 $(EXECUTABLE) $(DESTDIR)
-	install -m 0644 doc/sbench.1.gz $(MANDIR)
+
+#	It doesn't work : "/bin/sh: -c: line 1: syntax error: unexpected end of file"
+#	if [ ! -z "$(MANDIR)" -a -d "$(MANDIR)"  ]; then
+#	  install -m 0644 doc/sbench.1.gz $(MANDIR)
+#	fi
+
+#	Must work on it, SLES works this way:
+#	# install -m 0644 doc/sbench.1.gz $(MANDIR)
+#	but ubuntu doesn't. Already tried this:
+#	# install -m 0644 doc/sbench.1.gz /usr/share/man/man1/
+#       but then it fails on ubuntu: "install: cannot create regular file `/usr/share/man/man1/sbench.1.gz': Permission denied"

@@ -109,7 +109,8 @@ rm -rf $RPM_BUILD_ROOT
 %files
 %defattr(0644,root,root,0644)
 %attr(0755, root, root) /usr/bin/%{name}
-%attr(0644, root, root) /usr/share/man/man1/sbench.1.gz
+### Can't make it work on Ubuntu and SLES at the same time. It just works on SLES:
+### %attr(0644, root, root) /usr/share/man/man1/sbench.1.gz
 
 # %files -f %{name}.lang
 # %doc AUTHORS ChangeLog COPYING NEWS README THANKS TODO

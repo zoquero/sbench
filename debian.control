@@ -1,0 +1,12 @@
+Source: sbench
+Section: unknown
+Priority: optional
+Maintainer: Angel Galindo Muñoz <zoquero@gmail.com>
+Build-Depends: debhelper (>= 4.1.16), libcurl4-openssl-dev, liboping-dev
+
+Package: sbench
+Architecture: any
+Depends: ${shlibs:Depends}
+Description: Simple benchmarks
+ Simple benchmarks for testing CPU, memory, disk (filesystem) and network
+ It's source can be found here: https://github.com/zoquero/simplebenchmark#s-f- Description)
