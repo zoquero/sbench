@@ -17,6 +17,8 @@
 
 #ifdef OPING_ENABLED
 #include <oping.h>        // octo's ping library
+#else // OPING_ENABLED
+#define BUFSIZE 1024
 #endif // OPING_ENABLED
 
 #include "sbenchfuncs.h"
@@ -744,5 +746,58 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   averageLatency = accumulatedLatency/successfullResponses;
   return averageLatency;
 }
-#endif // OPING_ENABLED
+#else  // OPING_ENABLED
+/**
+  * Ping running external ping program, returns average latency.
+  * Errors (parsing?) doesn't compute on average.
+  * Requires ping, grep and cut on PATH
+  */
+float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+             int verbose) {
+  char msg[100];
+  int    i = 1;
+  double accumulatedLatency = 0;
+  double successfullResponses = 0;
+  double averageLatency = 0;
+  char   command[BUFSIZ];
+  char   buf[BUFSIZE];
+  FILE   *fp;
+
+  if(verbose) printf("Sending %lu ICMP echo request paquets "
+                     "%lu bytes-long to %s\n",times, sizeInBytes, dest);
+
+  sprintf(command, "ping -s %lu -c %lu %s | cut -d \":\" -f 2 | cut -d \"=\" -f 4 | grep \" ms$\" | cut -d \" \" -f 1", sizeInBytes, times, dest);
+  if(verbose) printf("We will use the command [%s]\n", command);
+
+  if ((fp = popen(command, "r")) == NULL) {
+    sprintf(msg, "Can't open a pipe for running the command [%s]", command);
+    myAbort(msg);
+  }
+
+  float q = 0;
+  float f;
+  char *end;
+  while (fgets(buf, BUFSIZE, fp) != NULL) {
+    // f = atof(buf);
+    // http://en.cppreference.com/w/c/string/byte/strtof
+    f = strtod(buf, &end);
+    if (end == buf) {
+      // Error parsing ...
+      continue;
+    }
+    if(verbose) printf("* %f ms\n", f);
+    accumulatedLatency   += f;
+    successfullResponses ++;
+    q++;
+  }
+  if(successfullResponses == 0) {
+    sprintf(msg, "No successfull responses pinging [%s]", dest);
+    myAbort(msg);
+  }
+  averageLatency = accumulatedLatency / successfullResponses;
+  if(verbose) printf("average: [%f]\n", averageLatency);
+
+  return averageLatency;
+}
+#endif // else OPING_ENABLED
 

@@ -16,11 +16,11 @@
 #define EXIT_CODE_CRITICAL 2
 #define EXIT_CODE_UNKNOWN  3
 
-#ifdef OPING_ENABLED
+// ifdef OPING_ENABLED
 enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
-#else  // OPING_ENABLED
-enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
-#endif // OPING_ENABLED
+// else  // OPING_ENABLED
+// enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
+// endif // OPING_ENABLED
 
 /* arguments for cpu tests */
 typedef struct cpu_args {
