@@ -38,6 +38,7 @@ install:
 #	if [ ! -z "$(MANDIR)" -a -d "$(MANDIR)"  ]; then
 #	  install -m 0644 doc/sbench.1.gz $(MANDIR)
 #	fi
+	install -m 0644 doc/sbench.1.gz $(MANDIR)
 
 #	Must work on it, SLES works this way:
 #	# install -m 0644 doc/sbench.1.gz $(MANDIR)
