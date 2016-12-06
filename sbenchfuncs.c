@@ -19,6 +19,7 @@
 #include <oping.h>        // octo's ping library
 #else // OPING_ENABLED
 #define BUFSIZE 1024
+#include <regex.h>
 #endif // OPING_ENABLED
 
 #include "sbenchfuncs.h"
@@ -669,7 +670,8 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
 #ifdef OPING_ENABLED
 /**
   *
-  * Ping using Octo's ping library
+  * Ping using Octo's ping library,
+  * it returns an structure with average latency and packet loss.
   *
   * How to install this library on Ubuntu:
   *            * to run:     $ sudo apt-get install liboping0
@@ -680,7 +682,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   *
   * @seeAlso https://github.com/octo/liboping/
   */
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose) {
   pingobj_t *ping;
   pingobj_iter_t *iter;
@@ -689,6 +691,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   double accumulatedLatency = 0;
   size_t successfullResponses = 0;
   double averageLatency = 0;
+  pingResponse pr = {1, -1};
 
   if(verbose) printf("Sending %lu ICMP echo request paquets "
                      "%lu bytes-long to %s\n",times, sizeInBytes, dest);
@@ -719,20 +722,20 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     for (iter = ping_iterator_get(ping); iter != NULL; iter =
             ping_iterator_next(iter)) {
       char hostname[100];
-      double latency;
+      double latencyMs;
       size_t len; // format for size_t : %zu
       
       // if(verbose) printf("ping_iterator_get() #%d: success\n", i);
       len = 100;
       ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
       len = sizeof(double);
-      ping_iterator_get_info(iter, PING_INFO_LATENCY, &latency, &len);
-      if(latency != -1) {
+      ping_iterator_get_info(iter, PING_INFO_LATENCY, &latencyMs, &len);
+      if(latencyMs != -1) {
         successfullResponses++;
-        accumulatedLatency  += latency;
+        accumulatedLatency  += latencyMs;
       }
       
-      if(verbose) printf("ping #%d: hostname = %s, latency = %f\n", i, hostname, latency);
+      if(verbose) printf("ping #%d: hostname = %s, latency = %f\n", i, hostname, latencyMs);
     }
     // if(verbose) printf("ping iteration # %d\n", i);
     if(i++ == times)
@@ -744,60 +747,169 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     myAbort(msg);
   }
   averageLatency = accumulatedLatency/successfullResponses;
-  return averageLatency;
+
+  pr.latencyMs     = averageLatency;
+  pr.lossPerCent = 100.*(times - successfullResponses)/times;
+  if(verbose) printf("Returning latency=%.1f, packet loss=%.1f\n", pr.latencyMs, pr.lossPerCent);
+  return pr;
 }
+
 #else  // OPING_ENABLED
+
 /**
-  * Ping running external ping program, returns average latency.
-  * Errors (parsing?) doesn't compute on average.
-  * Requires ping, grep and cut on PATH
+  * Ping running external ping program,
+  * it returns an structure with average latency and packet loss.
+  * It just requires ping on PATH, parses it's output with regular expressions.
+  *
+  * Lacking of an API is terrible because you have to parse standard output,
+  * and it can lead to problems with different versions of the command
+  * and locale dependencies. Luckily the ping command looks like consistent
+  * in different Linux distros with different locales:
+  *
+  * Ping output on SLES 11 SP4:
+  * # ping -c 10 192.168.0.1
+  * PING 192.168.0.1 (192.168.0.1) 56(84) bytes of data.
+  * 64 bytes from 192.168.0.1: icmp_seq=1 ttl=63 time=7.23 ms
+  * 64 bytes from 192.168.0.1: icmp_seq=2 ttl=63 time=5.41 ms
+  * ...
+  * --- 192.168.0.1 ping statistics ---
+  * 10 packets transmitted, 10 received, 0% packet loss, time 9003ms
+  * rtt min/avg/max/mdev = 4.124/5.438/7.666/1.584 ms
+  *
+  * Ping output on Ubuntu 16.04.1:
+  * $ ping -c 10 192.168.0.1
+  * PING 192.168.0.1 (192.168.0.1) 56(84) bytes of data.
+  * 64 bytes from 192.168.0.1: icmp_seq=1 ttl=64 time=1.89 ms
+  * 64 bytes from 192.168.0.1: icmp_seq=2 ttl=64 time=1.78 ms
+  * ...
+  * --- 192.168.0.1 ping statistics ---
+  * 10 packets transmitted, 10 received, 0% packet loss, time 9005ms
+  * rtt min/avg/max/mdev = 1.677/2.123/2.718/0.429 ms
+  *
   */
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose) {
   char msg[100];
-  int    i = 1;
-  double accumulatedLatency = 0;
-  double successfullResponses = 0;
-  double averageLatency = 0;
-  char   command[BUFSIZ];
-  char   buf[BUFSIZE];
-  FILE   *fp;
+  int  i = 1;
+  char command[BUFSIZ];
+  char buf[BUFSIZE];
+  FILE *fp;
+
+  float q = 0;
+  float f;
+  char *end;
+  char *regex1String = "(.+) packets transmitted, (.+) received, .+% packet loss";
+  char *regex2String = ".* = [^/]+/([^/]+)/[^/]+/[^/]+ ms";
+  regex_t regex1Compiled;
+  regex_t regex2Compiled;
+  pingResponse pr = {1, -1};
 
   if(verbose) printf("Sending %lu ICMP echo request paquets "
                      "%lu bytes-long to %s\n",times, sizeInBytes, dest);
 
-  sprintf(command, "ping -s %lu -c %lu %s | cut -d \":\" -f 2 | cut -d \"=\" -f 4 | grep \" ms$\" | cut -d \" \" -f 1", sizeInBytes, times, dest);
-  if(verbose) printf("We will use the command [%s]\n", command);
+//sprintf(command, "ping -s %lu -c %lu %s | cut -d \":\" -f 2 | cut -d \"=\" -f 4 | grep \" ms$\" | cut -d \" \" -f 1", sizeInBytes, times, dest);
+  sprintf(command, "ping -s %lu -c %lu %s", sizeInBytes, times, dest);
+  if(verbose) printf("ping command that will be used: [%s]\n", command);
 
   if ((fp = popen(command, "r")) == NULL) {
     sprintf(msg, "Can't open a pipe for running the command [%s]", command);
     myAbort(msg);
   }
 
-  float q = 0;
-  float f;
-  char *end;
+  if(verbose) printf("regex1: %s\n", regex1String);
+  if(verbose) printf("regex2: %s\n", regex2String);
+
+  if (regcomp(&regex1Compiled, regex1String, REG_EXTENDED)) {
+    printf("Could not compile regular expression [%s]\n", regex1String);
+    exit(1);
+  }
+  if (regcomp(&regex2Compiled, regex2String, REG_EXTENDED)) {
+    printf("Could not compile regular expression [%s]\n", regex2String);
+    exit(1);
+  }
+
   while (fgets(buf, BUFSIZE, fp) != NULL) {
     // f = atof(buf);
     // http://en.cppreference.com/w/c/string/byte/strtof
-    f = strtod(buf, &end);
-    if (end == buf) {
-      // Error parsing ...
-      continue;
-    }
-    if(verbose) printf("* %f ms\n", f);
-    accumulatedLatency   += f;
-    successfullResponses ++;
-    q++;
+    // f = strtod(buf, &end);
+    if(verbose) printf("* %s", buf);
+    parsePingOutput(buf, &pr, &regex1Compiled, &regex2Compiled);
   }
-  if(successfullResponses == 0) {
-    sprintf(msg, "No successfull responses pinging [%s]", dest);
-    myAbort(msg);
-  }
-  averageLatency = accumulatedLatency / successfullResponses;
-  if(verbose) printf("average: [%f]\n", averageLatency);
 
-  return averageLatency;
+  if(verbose) printf("Ping response: loss=%.1f, latency=%.1f\n", pr.lossPerCent, pr.latencyMs);
+  regfree(&regex1Compiled);
+  regfree(&regex2Compiled);
+  return pr;
+}
+
+void parsePingOutput (char *source, pingResponse *pr, regex_t *regex1Compiled, regex_t *regex2Compiled) {
+  size_t maxGroups = 3;
+  char   numStr[strlen(source) + 1];
+  char  *end;
+  float  num;
+  unsigned int g = 0;
+  char sourceCopy[strlen(source) + 1];
+  regmatch_t groupArray[maxGroups];
+  int tx=-1, rx=-1;
+
+  // example about C regexp: http://stackoverflow.com/a/11864144/939015
+  if (regexec(regex1Compiled, source, maxGroups, groupArray, 0) == 0) {
+    for (g = 0; g < maxGroups; g++) {
+      if (groupArray[g].rm_so == (size_t)-1)
+        break;  // No more groups
+
+      strcpy(sourceCopy, source);
+      sourceCopy[groupArray[g].rm_eo] = 0;
+
+      if(g == 1 || g == 2) {
+        strcpy(numStr, sourceCopy + groupArray[g].rm_so);
+  
+        num = strtod(numStr, &end);
+        if (end == numStr) {
+          // parse error
+          continue;
+        }
+        if(g == 1) {
+          tx = num;
+        }
+        else if(g == 2) {
+          rx = num;
+        }
+      }
+
+    }
+    if(tx == 0)
+      pr->lossPerCent=100;
+    else {
+      pr->lossPerCent=100.*(tx-rx)/tx;
+    }
+//  printf("packets transmitted=%d , received=%d, calculated loss = %f per cent\n", tx, rx, pr->lossPerCent);
+  }
+
+  maxGroups = 2;
+  if (regexec(regex2Compiled, source, maxGroups, groupArray, 0) == 0) {
+    for (g = 0; g < maxGroups; g++) {
+      if (groupArray[g].rm_so == (size_t)-1)
+        break;  // No more groups
+
+      strcpy(sourceCopy, source);
+      sourceCopy[groupArray[g].rm_eo] = 0;
+
+      if(g == 1) {
+//      printf("Group %u: [%2u-%2u]: %s\n",
+//        g, groupArray[g].rm_so, groupArray[g].rm_eo,
+//          sourceCopy + groupArray[g].rm_so);
+        strcpy(numStr, sourceCopy + groupArray[g].rm_so);
+  
+        num = strtod(numStr, &end);
+        if (end == numStr) {
+          // parse error
+          continue;
+        }
+        pr->latencyMs=num;
+      }
+    }
+  }
 }
 #endif // else OPING_ENABLED
 

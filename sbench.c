@@ -54,7 +54,7 @@ void usage() {
          "-p <times,sizeInBytes,numThreads,fileName>\n");
 // ifdef OPING_ENABLED
   printf("sbench (-v) -t ping       "
-         "(-w warnThreshold -c critThreshold) "
+         "(-w latencyWarn_lossWarn -c latencyCrit_lossCrit) "
          "-p <times,sizeInBytes,dest>\n");
 // endif // OPING_ENABLED
   printf("sbench (-v) -t http_get   "
@@ -75,8 +75,11 @@ void usage() {
   printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n\n");
 // ifdef OPING_ENABLED
   printf("* To get the mean round-trip time sending\n");
-  printf("      4 ICMP echo request to ahost.adomain.net:\n");
-  printf("  sbench -t ping -p 4,56,ahost.adomain.net\n\n");
+  printf("      4 ICMP echo request of 56 bytes to www.gnu.org:\n");
+  printf("  sbench -t ping -p 4,56,www.gnu.org\n\n");
+  printf("* Idem but applying latency warning = 5ms, latency crit = 30ms,\n");
+  printf("      packet loss warning = 1%%, packet loss critical = 5%%:\n");
+  printf("  sbench -t ping -w 5_1 -c 30_5 -p 4,56,www.gnu.org\n\n");
 // endif // OPING_ENABLED
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("      and to compare it with the reference:\n");
@@ -183,7 +186,7 @@ void parseParams(char *params, enum btype thisType, int verbose, unsigned long *
 }
 
 
-void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit) {
+void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit, double *warn2, double  *crit2) {
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -246,15 +249,19 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
         *verbose = 1;
         break;
       case 'w':
-        if(sscanf(optarg, "%lf", warn) != 1) {
-          fprintf (stderr, "Option -%c requires an argument\n", c);
-          usage();
+        if(sscanf(optarg, "%lf_%lf", warn, warn2) != 1) {
+          if(sscanf(optarg, "%lf", warn) != 1) {
+            fprintf (stderr, "Option -%c requires an argument\n", c);
+            usage();
+          }
         }
         break;
       case 'c':
-        if(sscanf(optarg, "%lf", crit) != 1) {
-          fprintf (stderr, "Option -%c requires an argument\n", c);
-          usage();
+        if(sscanf(optarg, "%lf_%lf", crit, crit2) != 1) {
+          if(sscanf(optarg, "%lf", crit) != 1) {
+            fprintf (stderr, "Option -%c requires an argument\n", c);
+            usage();
+          }
         }
         break;
       case '?':
@@ -282,11 +289,26 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
       printf("You prefer simple output, not nagios-like\n");
     *nagiosPluginOutput=0;
   }
+  if( *thisType == PING &&
+      ( (*warn == -1) || (*crit == -1) || (*warn2 == -1) || (*crit2 == -1) )) {
+    fprintf (stderr, "Ping warning and critical levels must be two arguments"
+                     " each (latency in ms and percent of packet loss)"
+                     " separated by an underscore \"_\" (eg: -c 10_5 ...)\n");
+    usage();
+  }
   else
     if(*verbose)
       printf("You prefer nagios-like output\n");
 }
 
+/**
+  * Main.
+  *
+  * Some guidelines about developing nagios plugins:
+  * https://nagios-plugins.org/doc/guidelines.html
+  * http://blog.centreon.com/good-practices-how-to-develop-monitoring-plugin-nagios/
+  *
+  */
 int main (int argc, char *argv[]) {
   int  verbose = 0;
   char *params = 0;
@@ -302,9 +324,10 @@ int main (int argc, char *argv[]) {
   char dest[HOST_NAME_MAX];
   double r;
   int nagiosPluginOutput = 1;
-  double warn = -1., crit = -1.;
+  double warn  = -1., crit  = -1.;
+  double warn2 = -1., crit2 = -1.;
 
-  getOpts(argc, argv, &params, &thisType, &verbose, &nagiosPluginOutput, &warn, &crit);
+  getOpts(argc, argv, &params, &thisType, &verbose, &nagiosPluginOutput, &warn, &crit, &warn2, &crit2);
   parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest, warn, crit);
   if(thisType == CPU) {
     r = doCpuTest(times, nThreads, verbose);
@@ -422,23 +445,31 @@ int main (int argc, char *argv[]) {
   }
 // ifdef OPING_ENABLED
   else if(thisType == PING) {
-    r = doPing(sizeInBytes, times, dest, verbose);
+    pingResponse pr; // pr.latencyMs, pr.lossPerCent
+    pr = doPing(sizeInBytes, times, dest, verbose);
+    if(verbose) printf("  time_ms=%.1fms, warn=%1.f crit=%1.f\n", pr.latencyMs, warn, crit);
+    if(verbose) printf("  loss_percent=%.1f%%, warn=%1.f crit=%1.f\n", pr.lossPerCent, warn2, crit2);
+
+    if(pr.latencyMs == -1 && pr.lossPerCent != 100) {
+      printf("PingRTT Unknown = Can't parse ping data = %.1f ms, %.1f %%| time_ms=%.1fms loss_percent=%.1f%%\n", pr.latencyMs, pr.lossPerCent, pr.latencyMs, pr.lossPerCent);
+      exit(EXIT_CODE_UNKNOWN);
+    }
     if(nagiosPluginOutput) {
-      if(r >= crit) {
-        printf("PingRTT Critical = %.1f ms| time_ms=%.1f\n", r, r);
+      if(pr.latencyMs >= crit || pr.lossPerCent >= crit2) {
+        printf("PingRTT Critical = %.1f ms, %.1f %%| time_ms=%.1fms loss_percent=%.1f%%\n", pr.latencyMs, pr.lossPerCent, pr.latencyMs, pr.lossPerCent);
         exit(EXIT_CODE_CRITICAL);
       }
-      else if(r >= warn) {
-        printf("PingRTT Warning = %.1f ms| time_ms=%.1f\n", r, r);
+      else if(pr.latencyMs >= warn || pr.lossPerCent >= warn2) {
+        printf("PingRTT Warning = %.1f ms, %.1f %%| time_ms=%.1fms loss_percent=%.1f%%\n", pr.latencyMs, pr.lossPerCent, pr.latencyMs, pr.lossPerCent);
         exit(EXIT_CODE_WARNING);
       }
       else {
-        printf("PingRTT OK = %.1f ms| time_ms=%.1f\n", r, r);
+        printf("PingRTT OK = %.1f ms, %.1f %%| time_ms=%.1fms loss_percent=%.1f%%\n", pr.latencyMs, pr.lossPerCent, pr.latencyMs, pr.lossPerCent);
         exit(EXIT_CODE_OK);
       }
     }
     else {
-      printf("%.1f ms\n", r);
+      printf("%.1f ms;%.1f %%\n", pr.latencyMs, pr.lossPerCent);
       exit(EXIT_CODE_OK);
     }
   }
