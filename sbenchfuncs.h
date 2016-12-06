@@ -22,9 +22,11 @@ enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 // enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 // endif // OPING_ENABLED
 
-/* ping response */
+/** ping response */
 typedef struct {
-  float latency;
+  /** latency in miliseconds */
+  float latencyMs;
+  /** Percent of package loss */
   float lossPerCent;
 } pingResponse;
 
@@ -87,7 +89,7 @@ double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned l
 
 double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose);
 
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose);
 
 #endif

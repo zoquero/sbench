@@ -670,7 +670,8 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
 #ifdef OPING_ENABLED
 /**
   *
-  * Ping using Octo's ping library
+  * Ping using Octo's ping library,
+  * it returns an structure with average latency and packet loss.
   *
   * How to install this library on Ubuntu:
   *            * to run:     $ sudo apt-get install liboping0
@@ -681,7 +682,7 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   *
   * @seeAlso https://github.com/octo/liboping/
   */
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose) {
   pingobj_t *ping;
   pingobj_iter_t *iter;
@@ -690,6 +691,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   double accumulatedLatency = 0;
   size_t successfullResponses = 0;
   double averageLatency = 0;
+  pingResponse pr = {1, -1};
 
   if(verbose) printf("Sending %lu ICMP echo request paquets "
                      "%lu bytes-long to %s\n",times, sizeInBytes, dest);
@@ -720,20 +722,20 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     for (iter = ping_iterator_get(ping); iter != NULL; iter =
             ping_iterator_next(iter)) {
       char hostname[100];
-      double latency;
+      double latencyMs;
       size_t len; // format for size_t : %zu
       
       // if(verbose) printf("ping_iterator_get() #%d: success\n", i);
       len = 100;
       ping_iterator_get_info(iter, PING_INFO_HOSTNAME, hostname, &len);
       len = sizeof(double);
-      ping_iterator_get_info(iter, PING_INFO_LATENCY, &latency, &len);
-      if(latency != -1) {
+      ping_iterator_get_info(iter, PING_INFO_LATENCY, &latencyMs, &len);
+      if(latencyMs != -1) {
         successfullResponses++;
-        accumulatedLatency  += latency;
+        accumulatedLatency  += latencyMs;
       }
       
-      if(verbose) printf("ping #%d: hostname = %s, latency = %f\n", i, hostname, latency);
+      if(verbose) printf("ping #%d: hostname = %s, latency = %f\n", i, hostname, latencyMs);
     }
     // if(verbose) printf("ping iteration # %d\n", i);
     if(i++ == times)
@@ -745,19 +747,24 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     myAbort(msg);
   }
   averageLatency = accumulatedLatency/successfullResponses;
-  return averageLatency;
+
+  pr.latencyMs     = averageLatency;
+  pr.lossPerCent = 100.*(times - successfullResponses)/times;
+  if(verbose) printf("Returning latency=%.1f, packet loss=%.1f\n", pr.latencyMs, pr.lossPerCent);
+  return pr;
 }
 
 #else  // OPING_ENABLED
 
 /**
-  * Ping running external ping program, returns average latency.
-  * Errors (parsing?) doesn't compute on average.
-  * Requires ping, grep and cut on PATH.
+  * Ping running external ping program,
+  * it returns an structure with average latency and packet loss.
+  * It just requires ping on PATH, parses it's output with regular expressions.
   *
-  * Lacking of an API is terrible because you have to parse output,
-  * but ping looks like consistent in different Linux versions
-  * with different locales:
+  * Lacking of an API is terrible because you have to parse standard output,
+  * and it can lead to problems with different versions of the command
+  * and locale dependencies. Luckily the ping command looks like consistent
+  * in different Linux distros with different locales:
   *
   * Ping output on SLES 11 SP4:
   * # ping -c 10 192.168.0.1
@@ -780,7 +787,7 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   * rtt min/avg/max/mdev = 1.677/2.123/2.718/0.429 ms
   *
   */
-float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
+pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
              int verbose) {
   char msg[100];
   int  i = 1;
@@ -795,13 +802,14 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   char *regex2String = ".* = [^/]+/([^/]+)/[^/]+/[^/]+ ms";
   regex_t regex1Compiled;
   regex_t regex2Compiled;
+  pingResponse pr = {1, -1};
 
   if(verbose) printf("Sending %lu ICMP echo request paquets "
                      "%lu bytes-long to %s\n",times, sizeInBytes, dest);
 
 //sprintf(command, "ping -s %lu -c %lu %s | cut -d \":\" -f 2 | cut -d \"=\" -f 4 | grep \" ms$\" | cut -d \" \" -f 1", sizeInBytes, times, dest);
   sprintf(command, "ping -s %lu -c %lu %s", sizeInBytes, times, dest);
-  if(verbose) printf("We will use the command [%s]\n", command);
+  if(verbose) printf("ping command that will be used: [%s]\n", command);
 
   if ((fp = popen(command, "r")) == NULL) {
     sprintf(msg, "Can't open a pipe for running the command [%s]", command);
@@ -819,22 +827,19 @@ float doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     printf("Could not compile regular expression [%s]\n", regex2String);
     exit(1);
   }
-  pingResponse pr = {1, -1};
 
   while (fgets(buf, BUFSIZE, fp) != NULL) {
     // f = atof(buf);
     // http://en.cppreference.com/w/c/string/byte/strtof
     // f = strtod(buf, &end);
     if(verbose) printf("* %s", buf);
-
     parsePingOutput(buf, &pr, &regex1Compiled, &regex2Compiled);
   }
 
-  if(verbose) printf("Ping response: loss=%.1f, latency=%.1f\n", pr.lossPerCent, pr.latency);
+  if(verbose) printf("Ping response: loss=%.1f, latency=%.1f\n", pr.lossPerCent, pr.latencyMs);
   regfree(&regex1Compiled);
   regfree(&regex2Compiled);
-
-  return pr.latency;
+  return pr;
 }
 
 void parsePingOutput (char *source, pingResponse *pr, regex_t *regex1Compiled, regex_t *regex2Compiled) {
@@ -901,7 +906,7 @@ void parsePingOutput (char *source, pingResponse *pr, regex_t *regex1Compiled, r
           // parse error
           continue;
         }
-        pr->latency=num;
+        pr->latencyMs=num;
       }
     }
   }

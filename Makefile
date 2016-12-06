@@ -1,13 +1,13 @@
 # Makefile for sbench
 #
 # To build with    OPING:   (Ubuntu)
-# $ make all PING_ENABLE=y
+# $ make all OPING_ENABLED=y
 #
 # To build without OPING:   (SLES)
 # $ make all
 #
 
-ifdef PING_ENABLE
+ifdef OPING_ENABLED
 PING_ENABLE_COMPILE=-DOPING_ENABLED
 PING_ENABLE_LINK=-loping -DOPING_ENABLED
 endif
