@@ -22,6 +22,17 @@ enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 // enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET};
 // endif // OPING_ENABLED
 
+/* ping response */
+typedef struct {
+  float latency;
+  float lossPerCent;
+} pingResponse;
+
+#ifndef OPING_ENABLED
+#include <regex.h>
+void parsePingOutput (char *source, pingResponse *pr, regex_t *regex1Compiled, regex_t *regex2Compiled);
+#endif // OPING_ENABLED
+
 /* arguments for cpu tests */
 typedef struct cpu_args {
   unsigned long  times;
