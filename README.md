@@ -6,13 +6,13 @@ Angel Galindo ( zoquero@gmail.com ), november of 2016
 
 # Features
 
-It measures how systems perform doing these tests:
+It allows you to measure how your systems perform doing these tests:
 
 * Memory:
     * allocate, commit and set
 * CPU:
     * multi-threaded floating-point operations (simply sums, substractions, powers and divisions)
-* Disk (filesystem):
+* Disk (well... filesystem):
     * Sequential read
     * Sequential write
     * Multi-threaded random write
@@ -23,13 +23,13 @@ It measures how systems perform doing these tests:
 
 # Motivation
 
-I just need some simple, easily understood and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
+I just need some simple, easily understandable and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
 
-An example of it's simplicity are the CPU tests: it just performs some simple floating-point operations that any CPU can do (sums, substractions, powers and divisions). The only thing I need is having the CPU doing a concrete amount of calculus. If you are looking for a complete CPU tests to test it's Instruction Set then you may be looking for specs like the ones from [SPEC CPU Benchmark](https://www.spec.org/cpu/).
+An example of it's simplicity are the CPU tests: it just performs some simple floating-point operations that any CPU can do (sums, substractions, powers and divisions). The only thing I need is having the CPU doing a concrete amount of calculus. If you are looking for complete CPU tests to benchmark it's instruction set then you may be looking for something like [SPEC CPU Benchmark](https://www.spec.org/cpu/).
 
-These simple benchmarks can be used intensively on farm for stresstesting (will impact in all system's performance) but they can also be used softly just as a measurement, a charaterization of your IaaS.
+These simple benchmarks can be used intensively on farm for stresstesting (it will impact on all system's performance) but they can also be used softly just as a measurement, a charaterization of your IaaS.
 
-Ok, but *why can I need it*? For example for **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs you always can read performance indicators on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready*, *Co-Stop*, balooning, hypervisor swapping or network and storage latencies) that you will not be able to get when running on a public cloud.
+Ok, but *why can I need it*? For example as an enablement for **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs on your private cloud you always can read performance indicators on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready*, *Co-Stop*, balooning, hypervisor swapping or network and storage latencies) that you will not be able to get when running on a public cloud.
 
 Ok, but *I am already using a benchmark suite to test it all*. Nice, go ahead and use that suite. Mmmmmm, but, how long does it takes for you to run those tests? Do you know exactly what are those tests doing? And, can you adjust that suite so that it doesn't induce a heavy load-test that could affect your other systems?
 
@@ -46,8 +46,8 @@ In other hand, testing one of your systems can affect negatively on other system
 # Command line interface 
 
 It's very easy to be used. You'll find help:
-* running the executable without arguments or adding "-h".
-* man 1 sbench
+* running the executable without arguments or adding "`-h`".
+* `man 1 sbench`
 
 ## Nagios plugin
 
@@ -59,11 +59,17 @@ Using the command line interface you can set threshold parameters and the output
 
 How to build:
 * `make`
-* copy executable and man page where needed
+
+How to install:
+* `sudo install -o root -g root -m 0755 ./sbench /usr/bin/`
+* `sudo install -o root -g root -m 0644 ./doc/sbench.1.gz /usr/share/man/man1/`
+
+## Open Build Service
+If you prefer you can install my already built packages available in [Open Build Service](http://software.opensuse.org/download.html?project=home%3Azoquero%3Asbench&package=sbench).
 
 ## Dependencies
 
-It just requires *libcurl*, but if it's a problem then you can easily strip the code removing functions like "*sbenchfuncs.c:httpGet*", you will just miss the bandwith througput tests.
+It just requires `libcurl`, but if it's a problem then you can easily strip the code removing functions like `sbenchfuncs.c:httpGet`, you will just miss the bandwith througput tests.
 
 ## Packages for dependencies on Ubuntu:
 
@@ -80,20 +86,20 @@ It just requires *libcurl*, but if it's a problem then you can easily strip the 
 * running: 
     * libcurl4 | libcurl4-32bit
 
-## Alternate ping with liboping
+## Alternate ping with liboping (optional)
 
 It pings running "`ping`" external command, but if you prefer you can use [Octo's ping library](http://noping.cc/) this way:
 
 `make OPING_ENABLED=y`
 
-### Packages for liboping on Ubuntu:
+### Packages for liboping on Ubuntu (optional):
 
 * building: 
     * liboping-dev
 * running: 
     * liboping0
 
-### Packages for liboping on SLES|OpenSUSE:
+### Packages for liboping on SLES|OpenSUSE (optional):
 
 * building: 
     * liboping-devel | liboping-devel-32bit
@@ -102,7 +108,7 @@ It pings running "`ping`" external command, but if you prefer you can use [Octo'
 
 # Platforms
 
-It has been tested on *Ubuntu Linux 16.04* on `x86_64` and *SLES 11 SP4* on x86_32 and x86_64, but surely it's portable to other platforms because just it uses POSIX API and libcurl (and optionaly liboping ).
+It has been tested on *Ubuntu Linux 16.04* on `x86_64` and *SLES 11 SP4* on `x86_32` and `x86_64`, but surely it's portable to other platforms because just it uses POSIX API and libcurl (and optionaly liboping ).
 
 # Disclaimer
 
