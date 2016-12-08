@@ -65,7 +65,7 @@ Nagios-like output, usefull to integrate it with your monitoring tool:
 
 `Mem Warning = 0.85 s| time=0.85`
 
-`echo $?`
+`$ echo $?`
 
 `1`
 
