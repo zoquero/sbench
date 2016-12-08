@@ -352,7 +352,7 @@ int main (int argc, char *argv[]) {
       }
     }
     else {
-      printf("%.2f avg calcs / s per CPU\n", avgCalcsPerSecondPerCpu);
+      printf("%.2f avg calcs/s per CPU\n", avgCalcsPerSecondPerCpu);
       exit(EXIT_CODE_OK);
     }
   }
@@ -474,7 +474,7 @@ int main (int argc, char *argv[]) {
       }
     }
     else {
-      printf("%.1f;%.1f\n", pr.latencyMs, pr.lossPerCent);
+      printf("%.1f ms;%.1f %\n", pr.latencyMs, pr.lossPerCent);
       exit(EXIT_CODE_OK);
     }
   }
