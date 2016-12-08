@@ -289,16 +289,21 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
       printf("You prefer simple output, not nagios-like\n");
     *nagiosPluginOutput=0;
   }
-  if( *thisType == PING &&
-      ( (*warn == -1) || (*crit == -1) || (*warn2 == -1) || (*crit2 == -1) )) {
-    fprintf (stderr, "Ping warning and critical levels must be two arguments"
-                     " each (latency in ms and percent of packet loss)"
-                     " separated by an underscore \"_\" (eg: -c 10_5 ...)\n");
-    usage();
-  }
-  else
+  else {
     if(*verbose)
       printf("You prefer nagios-like output\n");
+    *nagiosPluginOutput=1;
+  }
+
+  // PING returns two values, so it needs warn and crit levels for both, if set
+  if(*nagiosPluginOutput == 1 && *thisType == PING &&
+      ((*warn2 == -1) || (*crit2 == -1))) {
+    fprintf (stderr, "Ping warning and critical levels must have two values"
+                     " each\n (latency in ms and percent of packet loss)\n"
+                     " separated by an underscore \"_\" \n"
+                     " eg:  ... -w 5_1 -c 10_5 ...)\n\n");
+    usage();
+  }
 }
 
 /**
@@ -469,7 +474,7 @@ int main (int argc, char *argv[]) {
       }
     }
     else {
-      printf("%.1f ms;%.1f %%\n", pr.latencyMs, pr.lossPerCent);
+      printf("%.1f;%.1f\n", pr.latencyMs, pr.lossPerCent);
       exit(EXIT_CODE_OK);
     }
   }

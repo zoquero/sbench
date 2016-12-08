@@ -836,7 +836,7 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
     parsePingOutput(buf, &pr, &regex1Compiled, &regex2Compiled);
   }
 
-  if(verbose) printf("Ping response: loss=%.1f, latency=%.1f\n", pr.lossPerCent, pr.latencyMs);
+  if(verbose) printf("Ping response: latency=%.1fms, loss=%.1f%%\n", pr.latencyMs, pr.lossPerCent);
   regfree(&regex1Compiled);
   regfree(&regex2Compiled);
   return pr;
