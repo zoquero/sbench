@@ -101,6 +101,7 @@ and something like this in your syslog:
 
 then probably your NRPE service has been compiled
 without "`--enable-command-args`" and you should rebuild it.
+For examle, you can follow up [these instructions](http://sysadmin.compxtreme.ro/nagios-nrpe-server-ignores-dont_blame_nrpe1/).
 
 # Build and install
 
