@@ -49,9 +49,52 @@ It's very easy to be used. You'll find help:
 * running the executable without arguments or adding "`-h`".
 * `man 1 sbench`
 
-## Nagios plugin
+# Nagios plugin
 
-Using the command line interface you can set threshold parameters and the output will then be nagios plugin-like, so that you will be able to integrate it with your nagios-compatible monitoring system. Remember that with great power there must also come great responsibility :) be awared again that you may induce heavy load and you could affect the performance of your systems.
+If you pass warning and critical thresholds to this program, then the output will be nagios plugin-like, so that you will be able to integrate it with your nagios-compatible monitoring system:
+
+Normal output, usefull to output to CSV, for example:
+
+`$ ./sbench -t mem -p 1,104857600`
+
+`0.56 s`
+
+Nagios-like output, usefull to integrate it with your monitoring tool:
+
+`$ ./sbench -t mem -p 1,104857600 -w 0.6 -c 1.2`
+
+`Mem Warning = 0.85 s| time=0.85`
+
+`echo $?`
+
+`1`
+
+## NRPE configuration
+To be able to launch it through NRPE you must:
+
+* Enable command arguments adding this to your `nrpe.cfg` (such a risky parameter):
+
+`dont_blame_nrpe=1`
+
+* Configure this command, adding this to your `nrpe.cfg`:
+
+`command[check_sbench]=/usr/lib/nagios/plugins/check_sbench -w $ARG1$ -c $ARG2$ -t $ARG3$ -p $ARG4$`
+
+* copy the program to `/usr/lib/nagios/plugins/check_sbench`
+
+* Test it:
+
+`$ /usr/lib/nagios/plugins/check_nrpe -H 127.0.0.1 -c check_sbench -a 0.6 1.2 mem 1,104857600`
+
+`Mem Warning = 0.85 s| time=0.85`
+
+
+Note: If you get this error:
+
+`CHECK_NRPE: Received 0 bytes from daemon.  Check the remote server logs for error messages.`
+
+then probably your NRPE service has been compiled
+without "`--enable-command-args`" and you should rebuild it.
 
 # Build and install
 
