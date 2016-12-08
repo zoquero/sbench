@@ -93,6 +93,12 @@ Note: If you get this error:
 
 `CHECK_NRPE: Received 0 bytes from daemon.  Check the remote server logs for error messages.`
 
+and something like this in your syslog:
+
+`Error: Request contained command arguments!`
+
+`Client request was invalid, bailing out...`
+
 then probably your NRPE service has been compiled
 without "`--enable-command-args`" and you should rebuild it.
 
