@@ -51,18 +51,42 @@ sched_params getRTSched() {
   struct sched_param sp;
   /* reads priority and increments by 2 */
   if(sched_getparam(0, &sp) != 0) {
-    fputs("Error getting sched params", stderr);
+    fputs("Error getting sched params with sched_getparam", stderr);
     exit(-1);
   }
 
   p.priority = sp.sched_priority;
   p.sched_policy = sched_getscheduler(0);
   if(p.sched_policy == -1) {
-    fputs("Error getting thread's priority", stderr);
+    fputs("Error getting thread's priority with sched_getscheduler", stderr);
     exit(-1);
   }
 
   return p;
+}
+
+
+void printRTRecommendations() {
+  printf("\n== Regarding RealTime checks: ==\n");
+
+  printf("You will need to run it as root or use setuid.\n"
+         "If the kernel enables it, you can also use capabilities like this:\n"
+         "# sudo setcap cap_sys_nice+ep ./sbench\n"
+         "# sudo setcap cap_ipc_lock+ep ./sbench\n"
+         "Then you may also want to set permisions like this:\n"
+         "# chown root:nagios ./sbench\n"
+         "# chmod 0750 ./sbench\n"
+         "or use \"setfacl\":\n"
+         "# setfacl -m user:nagios:r-x ./sbench\n\n");
+
+  printf("You may want to read about 'System wide settings'"
+         " described in chapter 2.1 of 'Real-Time group scheduling' doc"
+         " from the Linux kernel"
+         " https://www.kernel.org/doc/Documentation/scheduler/sched-rt-group.txt "
+         " You may want to do as root something like:\n"
+         "echo \"-1\" > /proc/sys/kernel/sched_rt_runtime_us\n"
+         "it's risky but it will ensure that any non-realtime processes"
+         " won't steal CPU cycles to your RT tests.\n\n");
 }
 
 
@@ -80,12 +104,14 @@ void exitRealTime(sched_params p) {
   if(sched_setscheduler(0, p.sched_policy, &param) != 0) {
     fputs("Error setting scheduling policy&priority with sched_setscheduler\n",
           stderr);
+    printRTRecommendations();
     exit(1);
   }
   
   // lock memory, both current and future
   if(munlockall() != 0) {
     fputs("Error unlocking memory with munlockall", stderr);
+    printRTRecommendations();
     exit(-1);
   }
 }
@@ -105,6 +131,7 @@ sched_params enterRealTimeWithParams(sched_params p) {
   if(sched_setscheduler(0, p.sched_policy, &param) == -1) {
     fputs("Error setting scheduling policy&priority with sched_setscheduler\n",
           stderr);
+    printRTRecommendations();
     exit(1);
   }
   
