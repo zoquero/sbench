@@ -24,6 +24,12 @@ enum btype {CPU, MEM, DISK_W, DISK_R_SEQ, DISK_R_RAN, HTTP_GET, PING};
 
 /** ping response */
 typedef struct {
+  int sched_policy;
+  int priority;
+} sched_params;
+
+/** ping response */
+typedef struct {
   /** latency in miliseconds */
   float latencyMs;
   /** Percent of package loss */
@@ -39,6 +45,7 @@ void parsePingOutput (char *source, pingResponse *pr, regex_t *regex1Compiled, r
 typedef struct cpu_args {
   unsigned long  times;
   int            verbose;
+  int            realtime;
   unsigned int   threadNumber;
   double         delta; // return value
 } cpu_args_struct;
@@ -50,6 +57,7 @@ typedef struct dw_args {
   unsigned long times;
   char         *folderName;
   int           verbose;
+  int            realtime;
   unsigned int  threadNumber;
   double        delta; // return value
 } dw_args_struct;
@@ -61,36 +69,36 @@ typedef struct dr_args {
   unsigned long  times;
   char          *targetFileName;
   int            verbose;
+  int            realtime;
   unsigned int   threadNumber;
   unsigned long *blocks;
   double         delta; // return value
 } dr_args_struct;
 
+sched_params enterRealTime();
+
+sched_params enterRealTimeWithParams(sched_params p);
+
+void exitRealTime(sched_params p);
 
 void myAbort(char* msg);
 
-double doCpuTest(unsigned long times, int nThreads, int verbose);
+double doCpuTest(unsigned long times, int nThreads, int verbose, int realtime);
 
+double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose, int realtime);
 
-double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose);
-
-
-double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned int nThreads, char *folderName, int verbose);
-
+double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned int nThreads, char *folderName, int verbose, int realtime);
 
 // void shuffle(unsigned long *array, size_t n);
 
-
-double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose);
-
+double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose, int realtime);
 
 // size_t writeToFile(void *ptr, size_t size, size_t nmemb, FILE *stream);
 
-
-double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose);
+double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose, int realtime);
 
 pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
-             int verbose);
+             int verbose, int realtime);
 
 #endif
 

@@ -28,59 +28,57 @@
 void usage() {
   printf("Simple benchmarks, a first approach to performance measuring\n");
   printf("Usage:\n");
-  printf("sbench (-v) -t cpu        "
+  printf("sbench (-v) (-r) -t cpu        "
          "(-w warnThreshold -c critThreshold) "
          "-p <times>\n");
-  printf("sbench (-v) -t cpu        "
+  printf("sbench (-v) (-r) -t cpu        "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,numThreads>\n");
-  printf("sbench (-v) -t mem        "
+  printf("sbench (-v) (-r) -t mem        "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes>\n");
-  printf("sbench (-v) -t disk_w     "
+  printf("sbench (-v) (-r) -t disk_w     "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,folderName>\n");
-  printf("sbench (-v) -t disk_w     "
+  printf("sbench (-v) (-r) -t disk_w     "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,numThreads,folderName>\n");
-  printf("sbench (-v) -t disk_r_seq "
+  printf("sbench (-v) (-r) -t disk_r_seq "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,fileName>\n");
-  printf("sbench (-v) -t disk_r_ran "
+  printf("sbench (-v) (-r) -t disk_r_ran "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,fileName>\n");
-  printf("sbench (-v) -t disk_r_ran "
+  printf("sbench (-v) (-r) -t disk_r_ran "
          "(-w warnThreshold -c critThreshold) "
          "-p <times,sizeInBytes,numThreads,fileName>\n");
-// ifdef OPING_ENABLED
-  printf("sbench (-v) -t ping       "
+  printf("sbench (-v) (-r) -t ping       "
          "(-w latencyWarn_lossWarn -c latencyCrit_lossCrit) "
          "-p <times,sizeInBytes,dest>\n");
-// endif // OPING_ENABLED
-  printf("sbench (-v) -t http_get   "
+  printf("sbench (-v) (-r) -t http_get   "
          "(-w warnThreshold -c critThreshold) "
          "-p <httpRef,url>\n");
+  printf("\n * -v == verbose:\n");
+  printf(  " * -r == RealTime:\n");
   printf("\nExamples:\n");
   printf("* To allocate&commit 10 MiB of RAM and memset it 10 times\n"
          "      and get a response in nagios plugin-like format:\n");
   printf("  sbench -t mem -p 10,104857600 -w 0.3 -c 0.5\n\n");
-  printf("* To have 2 threads doing 100E6 silly calculus (2 pows):\n");
+  printf("* To have 2 threads doing 100E6 flotating point calculus (+-/^):\n");
   printf("  sbench -t cpu -p 10000000,2\n\n");
   printf("* To create 4 threads each writing 10 MiB in a file in 4k blocks:\n");
   printf("  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d\n\n");
   printf("* To read sequentially 100 MiB from a file in 4k blocks:\n");
   printf("  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile\n\n");
-  printf("* To read by random access 100 MiB from a file\n");
-  printf("      by 2 threads in 4k blocks:\n");
+  printf("* To random access read 100 MiB from a file\n");
+  printf("      concurrently by 2 threads reading 4k blocks:\n");
   printf("  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile\n\n");
-// ifdef OPING_ENABLED
   printf("* To get the mean round-trip time sending\n");
   printf("      4 ICMP echo request of 56 bytes to www.gnu.org:\n");
   printf("  sbench -t ping -p 4,56,www.gnu.org\n\n");
   printf("* Idem but applying latency warning = 5ms, latency crit = 30ms,\n");
   printf("      packet loss warning = 1%%, packet loss critical = 5%%:\n");
   printf("  sbench -t ping -w 5_1 -c 30_5 -p 4,56,www.gnu.org\n\n");
-// endif // OPING_ENABLED
   printf("* To download by HTTP GET http://www.test.com/file ,\n");
   printf("      and to compare it with the reference:\n");
   printf("      file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
@@ -186,7 +184,30 @@ void parseParams(char *params, enum btype thisType, int verbose, unsigned long *
 }
 
 
-void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *nagiosPluginOutput, double *warn, double  *crit, double *warn2, double  *crit2) {
+void printRTRecommendations() {
+  printf("\n== Regarding RealTime checks: ==\n");
+  printf("You may want to read about 'System wide settings'"
+         " described in chapter 2.1 of 'Real-Time group scheduling' doc"
+         " from the Linux kernel"
+         " https://www.kernel.org/doc/Documentation/scheduler/sched-rt-group.txt "
+         " You may want to do as root something like:\n"
+         "echo \"-1\" > /proc/sys/kernel/sched_rt_runtime_us\n"
+         "it's risky but it will ensure that any non-realtime processes"
+         " won't steal CPU cycles to your RT tests.\n\n");
+
+  printf("You will need to run it as root or if the kernel enables it,"
+         " you can use capabilities like this:\n"
+         "sudo setcap cap_sys_nice+ep ./sbench\n"
+         "sudo setcap cap_ipc_lock+ep ./sbench\n"
+         "Then you may also want to set permisions like this:\n"
+         "chown root:nagios ./sbench\n"
+         "chmod 0750 ./sbench\n"
+         "or use \"setfacl\":\n"
+         "setfacl -m user:nagios:r-x ./sbench\n\n");
+}
+
+
+void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *realtime, int *nagiosPluginOutput, double *warn, double  *crit, double *warn2, double  *crit2) {
   int c;
   extern char *optarg;
   extern int optind, opterr, optopt;
@@ -200,7 +221,7 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
     usage();
   }
 
-  while ((c = getopt (argc, argv, ":ht:p:vw:c:")) != -1) {
+  while ((c = getopt (argc, argv, ":hrt:p:vw:c:")) != -1) {
     switch (c) {
       case 'h':
         usage();
@@ -247,6 +268,9 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
         break;
       case 'v':
         *verbose = 1;
+        break;
+      case 'r':
+        *realtime = 1;
         break;
       case 'w':
         if(sscanf(optarg, "%lf_%lf", warn, warn2) != 1) {
@@ -304,7 +328,15 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
                      " eg:  ... -w 5_1 -c 10_5 ...)\n\n");
     usage();
   }
+
+  // RealTime choosed
+  if( *realtime && *verbose) {
+    printf("You have choosen *RealTimeChecks*. Take care!\n");
+    printRTRecommendations();
+  }
+
 }
+
 
 /**
   * Main.
@@ -316,6 +348,7 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
   */
 int main (int argc, char *argv[]) {
   int  verbose = 0;
+  int  realtime = 0;
   char *params = 0;
   enum btype thisType;
   unsigned long sizeInBytes, times;
@@ -332,10 +365,10 @@ int main (int argc, char *argv[]) {
   double warn  = -1., crit  = -1.;
   double warn2 = -1., crit2 = -1.;
 
-  getOpts(argc, argv, &params, &thisType, &verbose, &nagiosPluginOutput, &warn, &crit, &warn2, &crit2);
+  getOpts(argc, argv, &params, &thisType, &verbose, &realtime, &nagiosPluginOutput, &warn, &crit, &warn2, &crit2);
   parseParams(params, thisType, verbose, &times, &sizeInBytes, &nThreads, folderName, targetFileName, url, httpRefFileBasename, &timeoutInMS, dest, warn, crit);
   if(thisType == CPU) {
-    r = doCpuTest(times, nThreads, verbose);
+    r = doCpuTest(times, nThreads, verbose, realtime);
     double avgCalcsPerSecondPerCpu = times/r;
     if(nagiosPluginOutput) {
       if(avgCalcsPerSecondPerCpu >= crit) {
@@ -357,7 +390,7 @@ int main (int argc, char *argv[]) {
     }
   }
   else if(thisType == MEM) {
-    r = doMemTest(sizeInBytes, times, verbose);
+    r = doMemTest(sizeInBytes, times, verbose, realtime);
     if(nagiosPluginOutput) {
       if(r >= crit) {
         printf("Mem Critical = %.2f s| time=%.2f\n", r, r);
@@ -378,7 +411,7 @@ int main (int argc, char *argv[]) {
     }
   }
   else if(thisType == DISK_W) {
-    r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose);
+    r = doDiskWriteTest(sizeInBytes, times, nThreads, folderName, verbose, realtime);
     if(nagiosPluginOutput) {
       if(r >= crit) {
         printf("DiskWrite Critical = %.2f s| time=%.2f\n", r, r);
@@ -399,7 +432,7 @@ int main (int argc, char *argv[]) {
     }
   }
   else if(thisType == DISK_R_SEQ || thisType == DISK_R_RAN) {
-    r = doDiskReadTest(thisType, sizeInBytes, times, nThreads, targetFileName, verbose);
+    r = doDiskReadTest(thisType, sizeInBytes, times, nThreads, targetFileName, verbose, realtime);
     if(nagiosPluginOutput) {
       if(r >= crit) {
         printf("%sDiskRead Critical = %.6f s| time=%.6f\n", thisType == DISK_R_SEQ ? "Seq" : "Ran", r, r);
@@ -421,7 +454,7 @@ int main (int argc, char *argv[]) {
   }
   else if(thisType == HTTP_GET) {
     if(verbose) printf("getting %s by HTTP GET\n", url);
-    r = httpGet(url, httpRefFileBasename, &different, verbose);
+    r = httpGet(url, httpRefFileBasename, &different, verbose, realtime);
 
     if(nagiosPluginOutput) {
       if(different || r >= crit) {
@@ -451,7 +484,7 @@ int main (int argc, char *argv[]) {
 // ifdef OPING_ENABLED
   else if(thisType == PING) {
     pingResponse pr; // pr.latencyMs, pr.lossPerCent
-    pr = doPing(sizeInBytes, times, dest, verbose);
+    pr = doPing(sizeInBytes, times, dest, verbose, realtime);
     if(verbose) printf("  time_ms=%.1fms, warn=%1.f crit=%1.f\n", pr.latencyMs, warn, crit);
     if(verbose) printf("  loss_percent=%.1f%%, warn=%1.f crit=%1.f\n", pr.lossPerCent, warn2, crit2);
 
@@ -474,7 +507,7 @@ int main (int argc, char *argv[]) {
       }
     }
     else {
-      printf("%.1f ms;%.1f %\n", pr.latencyMs, pr.lossPerCent);
+      printf("%.1f ms;%.1f %%\n", pr.latencyMs, pr.lossPerCent);
       exit(EXIT_CODE_OK);
     }
   }

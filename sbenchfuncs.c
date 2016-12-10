@@ -14,6 +14,7 @@
 #include <curl/curl.h>    // libcurl
 #include <pthread.h>      // pthread_create ...
 #include <stdint.h>       // intmax_t
+#include <sys/mman.h>     // mlockall
 
 #ifdef OPING_ENABLED
 #include <oping.h>        // octo's ping library
@@ -40,16 +41,103 @@ double timeval_diff(struct timeval *a, struct timeval *b) {
   return (double)(a->tv_sec + (double)a->tv_usec/1000000) - (double)(b->tv_sec + (double)b->tv_usec/1000000);
 }
 
-  /**
-    * Simple way to have a CPU busy for a while.
-    * It just does simple floating-point operations
-    * (sums, substractions, powers and divisions).
-    * 
-    * If you are looking for a more complex CPU tests
-    * then you may be looking for specs like these: https://www.spec.org/cpu/
-    * 
-    */
+
+/**
+  * Gets the schedulling policy and priority of the current thread
+  */
+sched_params getRTSched() {
+  sched_params p;
+
+  struct sched_param sp;
+  /* reads priority and increments by 2 */
+  if(sched_getparam(0, &sp) != 0) {
+    fputs("Error getting sched params", stderr);
+    exit(-1);
+  }
+
+  p.priority = sp.sched_priority;
+  p.sched_policy = sched_getscheduler(0);
+  if(p.sched_policy == -1) {
+    fputs("Error getting thread's priority", stderr);
+    exit(-1);
+  }
+
+  return p;
+}
+
+
+/**
+  * Sets the schedulling policy and priority of the current thread
+  * and unlocks it's memory space
+  */
+void exitRealTime(sched_params p) {
+  sched_params r = getRTSched();
+
+  struct sched_param param;
+  param.sched_priority = p.priority;
+
+  // schedulling policy and priority
+  if(sched_setscheduler(0, p.sched_policy, &param) != 0) {
+    fputs("Error setting scheduling policy&priority with sched_setscheduler\n",
+          stderr);
+    exit(1);
+  }
+  
+  // lock memory, both current and future
+  if(munlockall() != 0) {
+    fputs("Error unlocking memory with munlockall", stderr);
+    exit(-1);
+  }
+}
+ 
+
+/**
+  * Sets the schedulling policy and priority of the current thread
+  * and locks it's memory space
+  */
+sched_params enterRealTimeWithParams(sched_params p) {
+  sched_params r = getRTSched();
+
+  struct sched_param param;
+  param.sched_priority = p.priority;
+
+  // schedulling policy and priority
+  if(sched_setscheduler(0, p.sched_policy, &param) == -1) {
+    fputs("Error setting scheduling policy&priority with sched_setscheduler\n",
+          stderr);
+    exit(1);
+  }
+  
+  // lock memory, both current and future
+  if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
+    fputs("Error locking memory with mlockall", stderr);
+    exit(-1);
+  }
+  return r;
+}
+ 
+
+/**
+  * Sets the schedulling policy to RealTime of the current thread,
+  * sets to a non-low priority and locks it's memory space
+  */
+sched_params enterRealTime() {
+  sched_params p = {SCHED_FIFO, 49};
+  return enterRealTimeWithParams(p);
+}
+
+
+/**
+  * Simple way to have a CPU busy for a while.
+  * It just does simple floating-point operations
+  * (sums, substractions, powers and divisions).
+  * 
+  * If you are looking for a more complex CPU tests
+  * then you may be looking for specs like these: https://www.spec.org/cpu/
+  * 
+  */
 void *cpuTestStartupRoutine(void *arg) {
+  sched_params p;
   struct timeval beginning, end;
   cpu_args_struct *args = (cpu_args_struct *) arg;
 
@@ -58,6 +146,10 @@ void *cpuTestStartupRoutine(void *arg) {
     printf("thread #%d that will perform %lu calculus", 
       args->threadNumber,
       args->times);
+
+  // Enter realtime if needed
+  if(args->realtime == 1)
+    p = enterRealTime();
 
   // Let's work:
   gettimeofday(&beginning, NULL);
@@ -68,17 +160,24 @@ void *cpuTestStartupRoutine(void *arg) {
   }
   gettimeofday(&end, NULL);
   args->delta=timeval_diff(&end, &beginning);
+
+  // Exit realtime if entered previously
+  if(args->realtime == 1)
+    exitRealTime(p);
+
   return NULL;
 }
 
+
 /**
-  * Waste some CPU cycles and return the number of econd sto do it
+  * Waste some CPU cycles and return the number of seconds needed to do it
   * @param times Number of times that each thread has to calculate
   * @param nThreads Number of threads
   * @param verbose if verbose
+  * @param realtime if realtime
   * @return double Average time that took each thread to do it
   */
-double doCpuTest(unsigned long times, int nThreads, int verbose) {
+double doCpuTest(unsigned long times, int nThreads, int verbose, int realtime) {
   char msg[100];
   double delta = 0;
 
@@ -92,6 +191,7 @@ double doCpuTest(unsigned long times, int nThreads, int verbose) {
   for (int i = 0; i < nThreads; i++) {
     args[i].times        = times,
     args[i].verbose      = verbose,
+    args[i].realtime     = realtime,
     args[i].threadNumber = i;
     args[i].delta        = 0.;
 
@@ -118,11 +218,16 @@ double doCpuTest(unsigned long times, int nThreads, int verbose) {
 }
 
 
-double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
+double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose, int realtime) {
+  sched_params p;
   char msg[100];
   char *cptr;
   struct timeval beginning, end, before, after;
   double delta;
+
+  // Enter realtime if needed
+  if(realtime == 1)
+    p = enterRealTime();
 
   gettimeofday(&beginning, NULL);
   for(int i = 0; i < times; i++) {
@@ -158,11 +263,16 @@ double doMemTest(unsigned long sizeInBytes, unsigned long times, int verbose) {
   gettimeofday(&end, NULL);
   delta=timeval_diff(&end, &beginning);
 
+  // Exit realtime if entered previously
+  if(realtime == 1)
+    exitRealTime(p);
+
   return delta;
 }
 
 
 void *diskWriteStartupRoutine(void *arg) {
+  sched_params p;
   char msg[100];
   struct timeval beginning, end;
   int  fd;
@@ -210,6 +320,11 @@ void *diskWriteStartupRoutine(void *arg) {
     sprintf(msg, "Can't open the target file %s for writing", fileName);
     myAbort(msg);
   }
+
+  // Enter realtime if needed
+  if(args->realtime == 1)
+    p = enterRealTime();
+
   // loop for writing and storing (fflush+msync)
   if(args->verbose) printf("Let's write %lu bytes %lu types on %s\n",
                 args->sizeInBytes, args->times, fileName);
@@ -232,6 +347,10 @@ void *diskWriteStartupRoutine(void *arg) {
   gettimeofday(&end, NULL);
   args->delta=timeval_diff(&end, &beginning);
 
+  // Exit realtime if entered previously
+  if(args->realtime == 1)
+    enterRealTime(p);
+
   // close
   if(close(fd) == -1) {
     sprintf(msg, "Can't close the target file %s", fileName);
@@ -251,7 +370,7 @@ void *diskWriteStartupRoutine(void *arg) {
 }
 
 
-double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned int nThreads, char *folderName, int verbose) {
+double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned int nThreads, char *folderName, int verbose, int realtime) {
   char msg[100];
   double delta = 0;
 
@@ -281,6 +400,7 @@ double doDiskWriteTest(unsigned long sizeInBytes, unsigned long times, unsigned 
     args[i].times        = times,
     args[i].folderName   = folderName,
     args[i].verbose      = verbose,
+    args[i].realtime     = realtime,
     args[i].threadNumber = i,
     args[i].delta        = 0.;
 
@@ -320,6 +440,7 @@ void shuffle(unsigned long *array, size_t n) {
 }
 
 void *diskReadStartupRoutine(void *arg) {
+  sched_params p;
   char msg[100];
   struct timeval beginning, end;
   double delta;
@@ -332,6 +453,7 @@ void *diskReadStartupRoutine(void *arg) {
 
   if(args->verbose) printf("Thread #%d started:\n", args->threadNumber);
   if(args->verbose) printf("Thread #%d started, with first byte of first bloc: %lu\n", args->threadNumber, args->blocks[args->threadNumber * args->times] * args->sizeInBytes );
+
 
   // create the array with positions to read, case DISK_R_RAN
   if(args->type == DISK_R_RAN) {
@@ -368,6 +490,10 @@ void *diskReadStartupRoutine(void *arg) {
     printf("Thread #%d will read %lu bytes %lu times from %s\n",
       args->threadNumber, args->sizeInBytes, args->times, args->targetFileName);
 
+  // Enter realtime if needed
+  if(args->realtime == 1)
+    p = enterRealTime();
+
   // loop for reading
   gettimeofday(&beginning, NULL);
   for(unsigned long i = 0; i < args->times; i++) {
@@ -391,6 +517,10 @@ void *diskReadStartupRoutine(void *arg) {
   }
   gettimeofday(&end, NULL);
   delta=timeval_diff(&end, &beginning);
+
+  // Exit realtime if entered previously
+  if(args->realtime == 1)
+    exitRealTime(p);
 
   // close file
   if(close(fd) == -1) {
@@ -420,7 +550,8 @@ void *diskReadStartupRoutine(void *arg) {
   * * asks each thread to read "times" of those positions
   * The result is a random concurrent access to that single file.
   */
-double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose) {
+double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned long times, int nThreads, char *targetFileName, int verbose, int realtime) {
+  sched_params p;
   char msg[100];
   double delta;
   unsigned long *blocks;
@@ -457,6 +588,7 @@ double doDiskReadTest(enum btype thisType, unsigned long sizeInBytes, unsigned l
     args[i].times          = times,
     args[i].targetFileName = targetFileName,
     args[i].verbose        = verbose,
+    args[i].realtime       = realtime,
     args[i].threadNumber   = i,
     args[i].blocks         = blocks,
     args[i].delta          = 0.;
@@ -524,7 +656,8 @@ int compare(FILE *fp1, FILE *fp2) {
   * 
   * Done using libcurl: https://curl.haxx.se/libcurl/c/
   */
-double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose) {
+double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose, int realtime) {
+  sched_params p;
   CURL *curl;
   CURLcode res;
   char msg[100];
@@ -599,12 +732,20 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeToFile);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, fds);
+
+    // Enter realtime if needed
+    if(realtime == 1)
+      p = enterRealTime();
  
     // Perform the request, res will get the return code
     gettimeofday(&beginning, NULL);
     res = curl_easy_perform(curl);
     gettimeofday(&end, NULL);
     delta=timeval_diff(&end, &beginning);
+
+    // Exit realtime if entered previously
+    if(realtime == 1)
+      exitRealTime(p);
 
     // Check for errors
     if(res != CURLE_OK) {
@@ -683,7 +824,8 @@ double httpGet(char *url, char *httpRefFileBasename, int *different, int verbose
   * @seeAlso https://github.com/octo/liboping/
   */
 pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
-             int verbose) {
+             int verbose, int realtime) {
+  sched_params p;
   pingobj_t *ping;
   pingobj_iter_t *iter;
   char msg[100];
@@ -712,6 +854,10 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   }
   if(verbose) printf("ping_host_add(): success\n");
   
+  // Enter realtime if needed
+  if(realtime == 1)
+    p = enterRealTime();
+
   while(1) {
     if(ping_send(ping) < 0) {
       sprintf(msg, "ping_send #%d: failed\n", i);
@@ -742,6 +888,11 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
       break;
     sleep(1);
   }
+
+  // Exit realtime if entered previously
+  if(args->realtime == 1)
+    exitRealTime(p);
+
   if(successfullResponses == 0) {
     sprintf(msg, "Zero responses received when sending %lu echo requests to %s", times, dest);
     myAbort(msg);
@@ -788,7 +939,8 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   *
   */
 pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
-             int verbose) {
+             int verbose, int realtime) {
+  sched_params p;
   char msg[100];
   int  i = 1;
   char command[BUFSIZ];
@@ -810,6 +962,10 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
 //sprintf(command, "ping -s %lu -c %lu %s | cut -d \":\" -f 2 | cut -d \"=\" -f 4 | grep \" ms$\" | cut -d \" \" -f 1", sizeInBytes, times, dest);
   sprintf(command, "ping -s %lu -c %lu %s", sizeInBytes, times, dest);
   if(verbose) printf("ping command that will be used: [%s]\n", command);
+
+  // Enter realtime if needed
+  if(realtime == 1)
+    p = enterRealTime();
 
   if ((fp = popen(command, "r")) == NULL) {
     sprintf(msg, "Can't open a pipe for running the command [%s]", command);
@@ -839,6 +995,11 @@ pingResponse doPing(unsigned long sizeInBytes, unsigned long times, char *dest,
   if(verbose) printf("Ping response: latency=%.1fms, loss=%.1f%%\n", pr.latencyMs, pr.lossPerCent);
   regfree(&regex1Compiled);
   regfree(&regex2Compiled);
+
+  // Exit realtime if entered previously
+  if(realtime == 1)
+    exitRealTime(p);
+
   return pr;
 }
 

@@ -103,6 +103,34 @@ then probably your NRPE service has been compiled
 without "`--enable-command-args`" and you should rebuild it.
 For examle, you can follow up [these instructions](http://sysadmin.compxtreme.ro/nagios-nrpe-server-ignores-dont_blame_nrpe1/).
 
+# RealTime checks
+
+With the "`-r`" parameter you can use RealTime schedulling for your checks. It will make your checks more precise but may impact in your applications (stop services first!) and may need root permisions or capabilities:
+
+To enable RealTime schedulling you will need to run it as root or, if the kernel enables it, you can use **capabilities** like this:
+
+`sudo setcap cap_sys_nice+ep ./sbench`
+
+`sudo setcap cap_ipc_lock+ep ./sbench`
+
+Then you may also want to set permisions like this:
+
+`chown root:nagios ./sbench`
+
+`chmod 0750 ./sbench`
+
+or use "`setfacl`":
+
+`setfacl -m user:nagios:r-x ./sbench`
+
+## Dead-lock guard
+
+If you want to launch RealTime checks then you may want to read about *System wide settings* described in chapter 2.1 of [Real-Time group scheduling](https://www.kernel.org/doc/Documentation/scheduler/sched-rt-group.txt) doc from the Linux kernel. So you may want to do as root something like:
+
+`echo "-1" > /proc/sys/kernel/sched_rt_runtime_us`
+
+it's risky but it will ensure that any non-realtime processes won't steal CPU cycles to your RT tests.
+
 # Build and install
 
 ## Quick guide
