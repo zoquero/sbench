@@ -184,29 +184,6 @@ void parseParams(char *params, enum btype thisType, int verbose, unsigned long *
 }
 
 
-void printRTRecommendations() {
-  printf("\n== Regarding RealTime checks: ==\n");
-  printf("You may want to read about 'System wide settings'"
-         " described in chapter 2.1 of 'Real-Time group scheduling' doc"
-         " from the Linux kernel"
-         " https://www.kernel.org/doc/Documentation/scheduler/sched-rt-group.txt "
-         " You may want to do as root something like:\n"
-         "echo \"-1\" > /proc/sys/kernel/sched_rt_runtime_us\n"
-         "it's risky but it will ensure that any non-realtime processes"
-         " won't steal CPU cycles to your RT tests.\n\n");
-
-  printf("You will need to run it as root or if the kernel enables it,"
-         " you can use capabilities like this:\n"
-         "sudo setcap cap_sys_nice+ep ./sbench\n"
-         "sudo setcap cap_ipc_lock+ep ./sbench\n"
-         "Then you may also want to set permisions like this:\n"
-         "chown root:nagios ./sbench\n"
-         "chmod 0750 ./sbench\n"
-         "or use \"setfacl\":\n"
-         "setfacl -m user:nagios:r-x ./sbench\n\n");
-}
-
-
 void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *verbose, int *realtime, int *nagiosPluginOutput, double *warn, double  *crit, double *warn2, double  *crit2) {
   int c;
   extern char *optarg;
@@ -330,11 +307,8 @@ void getOpts(int argc, char **argv, char **params, enum btype *thisType, int *ve
   }
 
   // RealTime choosed
-  if( *realtime && *verbose) {
+  if( *realtime && *verbose)
     printf("You have choosen *RealTimeChecks*. Take care!\n");
-    printRTRecommendations();
-  }
-
 }
 
 
