@@ -193,7 +193,7 @@ It has been tested on *Ubuntu Linux 16.04* on `x86_64` and *SLES 11 SP4* on `x86
 I release myself from responsibility for any problem in the performance of your applications that it could lead.
 
 # Source
-It's source can be found at GitHub: [https://github.com/zoquero/simplebenchmark/](https://github.com/zoquero/simplebenchmark/).
+It's source can be found at GitHub: [https://github.com/zoquero/sbench/](https://github.com/zoquero/sbench/).
 
 I hope you'll find it useful!
 /Ángel
