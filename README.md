@@ -4,6 +4,8 @@ Lightweight program written in C to do simple benchmarks
 
 Angel Galindo ( zoquero@gmail.com ), november of 2016
 
+![Illustration](https://github.com/zoquero/sbench/blob/master/aux/logo.300x400.png)
+
 # Features
 
 It allows you to measure how your systems perform doing these tests:
