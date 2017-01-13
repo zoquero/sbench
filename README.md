@@ -1,6 +1,6 @@
 # Summary
 
-Lightweight program written in C to do simple benchmarks
+Simple, tunable and lightweight benchmarking tool written in C for testing CPU, memory, disk and network.
 
 Angel Galindo ( zoquero@gmail.com ), november of 2016
 
@@ -8,7 +8,7 @@ Angel Galindo ( zoquero@gmail.com ), november of 2016
 
 # Features
 
-It allows you to measure how your systems perform doing these tests:
+It measures system's performnce by testing:
 
 * Memory:
     * allocate, commit and set
@@ -25,11 +25,11 @@ It allows you to measure how your systems perform doing these tests:
 
 # Motivation
 
-I just need some simple, easily understandable and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
+I (the author) just need some simple, easily understandable and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
 
-An example of it's simplicity are the CPU tests: it just performs some simple floating-point operations that any CPU can do (sums, substractions, powers and divisions). The only thing I need is having the CPU doing a concrete amount of calculus. If you are looking for complete CPU tests to benchmark it's instruction set then you may be looking for something like [SPEC CPU Benchmark](https://www.spec.org/cpu/).
+An example of the simplicity of this tool (sbench) are its CPU tests: it just performs some simple floating-point operations that any CPU can do (sums, substractions, powers and divisions). The only thing I need is having the CPU doing a concrete amount of calculus. If you are looking for complete CPU tests to benchmark it's instruction set then you may be looking for something like [SPEC CPU Benchmark](https://www.spec.org/cpu/).
 
-These simple benchmarks can be used intensively on farm for stresstesting (it will impact on all system's performance) but they can also be used softly just as a measurement, a charaterization of your IaaS.
+These simple benchmarks can be used intensively on farm for stresstesting (it will impact on all system's performance) but they can also be used softly just as a measurement, a charaterization of your IaaS. Take a look at [bgrunner](https://github.com/zoquero/bgrunner) for this purpose.
 
 Ok, but *why can I need it*? For example as an enablement for **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs on your private cloud you always can read performance indicators on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready*, *Co-Stop*, balooning, hypervisor swapping or network and storage latencies) that you will not be able to get when running on a public cloud.
 
@@ -72,6 +72,7 @@ Nagios-like output, usefull to integrate it with your monitoring tool:
 `1`
 
 ## NRPE configuration
+
 To be able to launch it through NRPE you must:
 
 * Enable command arguments adding this to your `nrpe.cfg` (such a risky parameter):
@@ -104,6 +105,12 @@ and something like this in your syslog:
 then probably your NRPE service has been compiled
 without "`--enable-command-args`" and you should rebuild it.
 For examle, you can follow up [these instructions](http://sysadmin.compxtreme.ro/nagios-nrpe-server-ignores-dont_blame_nrpe1/).
+
+## Remote Batch execution
+
+The original intention of this project is being able to launch a load test on a IaaS. It's a collection of virtual machines with their resources and the test should be launched simultaneously and remotely by a master, like on a distributed JMeter test. If you have set NRPE configuration then you can use [bgrunner](https://github.com/zoquero/bgrunner) to launch an orchestrated stress test:
+
+![Illustration](https://github.com/zoquero/bgrunner/blob/master/doc/bgrunner.illustration.png)
 
 # RealTime checks
 
