@@ -75,13 +75,13 @@ It's very easy to be used. You'll find help:
 
 `sbench (-v) (-r) -t http_get   (-w warnThreshold -c critThreshold) -p <httpRef,url>`
 
-``
+
 
 ` * -v == verbose:`
 
 ` * -r == RealTime:`
 
-``
+
 
 `Examples:`
 
@@ -91,25 +91,25 @@ It's very easy to be used. You'll find help:
 
 `  sbench -t mem -p 10,104857600 -w 0.3 -c 0.5`
 
-``
+
 
 `* To have 2 threads doing 100E6 flotating point calculus (+-/^):`
 
 `  sbench -t cpu -p 10000000,2`
 
-``
+
 
 `* To create 4 threads each writing 10 MiB in a file in 4k blocks:`
 
 `  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d`
 
-``
+
 
 `* To read sequentially 100 MiB from a file in 4k blocks:`
 
 `  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile`
 
-``
+
 
 `* To random access read 100 MiB from a file`
 
@@ -117,7 +117,7 @@ It's very easy to be used. You'll find help:
 
 `  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile`
 
-``
+
 
 `* To get the mean round-trip time sending`
 
@@ -125,7 +125,7 @@ It's very easy to be used. You'll find help:
 
 `  sbench -t ping -p 4,56,www.gnu.org`
 
-``
+
 
 `* Idem but applying latency warning = 5ms, latency crit = 30ms,`
 
@@ -133,7 +133,7 @@ It's very easy to be used. You'll find help:
 
 `  sbench -t ping -w 5_1 -c 30_5 -p 4,56,www.gnu.org`
 
-``
+
 
 `* To download by HTTP GET http://www.test.com/file ,`
 
