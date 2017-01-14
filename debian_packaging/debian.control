@@ -9,4 +9,4 @@ Architecture: any
 Depends: ${shlibs:Depends}
 Description: Simple benchmarks
  Simple benchmarks for testing CPU, memory, disk (filesystem) and network
- It's source can be found here: https://github.com/zoquero/simplebenchmark#s-f- Description)
+ It's source can be found here: https://github.com/zoquero/sbench#s-f- Description)

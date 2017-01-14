@@ -1,6 +1,6 @@
 # Summary
 
-Simple, tunable and lightweight benchmarking tool written in C for testing CPU, memory, disk and network.
+Simple, tunable and lightweight benchmarking tool written in C for testing infrastructure (CPU, memory, disk and network).
 
 Angel Galindo ( zoquero@gmail.com ), november of 2016
 
@@ -25,15 +25,13 @@ It measures system's performnce by testing:
 
 # Motivation
 
-I (the author) just need some simple, easily understandable and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
+I (the author) just need some simple, easily understandable, tunable and reproducible tests to measure how my IaaS is performing. You can find nice suites for benchmarking like [hardinfo](https://github.com/lpereira/hardinfo/) or [Phoronix Test Suite](http://www.phoronix-test-suite.com/) but they are complex, they have some dependencies, sometimes they are difficult to be used and it's difficult to imagine what will be their exact impact on the IaaS when launching tests.
 
 An example of the simplicity of this tool (sbench) are its CPU tests: it just performs some simple floating-point operations that any CPU can do (sums, substractions, powers and divisions). The only thing I need is having the CPU doing a concrete amount of calculus. If you are looking for complete CPU tests to benchmark it's instruction set then you may be looking for something like [SPEC CPU Benchmark](https://www.spec.org/cpu/).
 
 These simple benchmarks can be used intensively on farm for stresstesting (it will impact on all system's performance) but they can also be used softly just as a measurement, a charaterization of your IaaS. Take a look at [bgrunner](https://github.com/zoquero/bgrunner) for this purpose.
 
 Ok, but *why can I need it*? For example as an enablement for **troubleshooting** if you are **moving** your virtual machines from your own IaaS **to a public cloud**. When you manage the IaaS under your VMs on your private cloud you always can read performance indicators on your hypervisors, your network appliances, your SAN and your storage arrays (like for example *CPU Ready*, *Co-Stop*, balooning, hypervisor swapping or network and storage latencies) that you will not be able to get when running on a public cloud.
-
-Ok, but *I am already using a benchmark suite to test it all*. Nice, go ahead and use that suite. Mmmmmm, but, how long does it takes for you to run those tests? Do you know exactly what are those tests doing? And, can you adjust that suite so that it doesn't induce a heavy load-test that could affect your other systems?
 
 ## Baseline
 
@@ -50,6 +48,100 @@ In other hand, testing one of your systems can affect negatively on other system
 It's very easy to be used. You'll find help:
 * running the executable without arguments or adding "`-h`".
 * `man 1 sbench`
+
+`$ sbench -h`
+
+`Simple, tunable and lightweight benchmarking tool for testing infrastructure`
+
+`Usage:`
+
+`sbench (-v) (-r) -t cpu        (-w warnThreshold -c critThreshold) -p <times>`
+
+`sbench (-v) (-r) -t cpu        (-w warnThreshold -c critThreshold) -p <times,numThreads>`
+
+`sbench (-v) (-r) -t mem        (-w warnThreshold -c critThreshold) -p <times,sizeInBytes>`
+
+`sbench (-v) (-r) -t disk_w     (-w warnThreshold -c critThreshold) -p <times,sizeInBytes,folderName>`
+
+`sbench (-v) (-r) -t disk_w     (-w warnThreshold -c critThreshold) -p <times,sizeInBytes,numThreads,folderName>`
+
+`sbench (-v) (-r) -t disk_r_seq (-w warnThreshold -c critThreshold) -p <times,sizeInBytes,fileName>`
+
+`sbench (-v) (-r) -t disk_r_ran (-w warnThreshold -c critThreshold) -p <times,sizeInBytes,fileName>`
+
+`sbench (-v) (-r) -t disk_r_ran (-w warnThreshold -c critThreshold) -p <times,sizeInBytes,numThreads,fileName>`
+
+`sbench (-v) (-r) -t ping       (-w latencyWarn_lossWarn -c latencyCrit_lossCrit) -p <times,sizeInBytes,dest>`
+
+`sbench (-v) (-r) -t http_get   (-w warnThreshold -c critThreshold) -p <httpRef,url>`
+
+``
+
+` * -v == verbose:`
+
+` * -r == RealTime:`
+
+``
+
+`Examples:`
+
+`* To allocate&commit 10 MiB of RAM and memset it 10 times`
+
+`      and get a response in nagios plugin-like format:`
+
+`  sbench -t mem -p 10,104857600 -w 0.3 -c 0.5`
+
+``
+
+`* To have 2 threads doing 100E6 flotating point calculus (+-/^):`
+
+`  sbench -t cpu -p 10000000,2`
+
+``
+
+`* To create 4 threads each writing 10 MiB in a file in 4k blocks:`
+
+`  sbench -t disk_w -p 2560,4096,4,/tmp/_sbench.d`
+
+``
+
+`* To read sequentially 100 MiB from a file in 4k blocks:`
+
+`  sbench -t disk_r_seq -p 25600,4096,/tmp/_sbench.testfile`
+
+``
+
+`* To random access read 100 MiB from a file`
+
+`      concurrently by 2 threads reading 4k blocks:`
+
+`  sbench -t disk_r_ran -p 25600,4096,2,/tmp/_sbench.testfile`
+
+``
+
+`* To get the mean round-trip time sending`
+
+`      4 ICMP echo request of 56 bytes to www.gnu.org:`
+
+`  sbench -t ping -p 4,56,www.gnu.org`
+
+``
+
+`* Idem but applying latency warning = 5ms, latency crit = 30ms,`
+
+`      packet loss warning = 1%, packet loss critical = 5%:`
+
+`  sbench -t ping -w 5_1 -c 30_5 -p 4,56,www.gnu.org`
+
+``
+
+`* To download by HTTP GET http://www.test.com/file ,`
+
+`      and to compare it with the reference:`
+
+`      file 'my_ref_file' located at /var/lib/sbench/http_refs :`
+
+`  sbench -t http_get -p my_ref_file,http://www.test.com/file
 
 # Nagios plugin
 
@@ -145,6 +237,7 @@ it's risky but it will ensure that any non-realtime processes won't steal CPU cy
 ## Quick guide
 
 How to build:
+* ( `make clean` )
 * `make`
 
 How to install:

@@ -10,7 +10,7 @@
  * * HTTP_GET: Shows the time it takes to HTTP GET a file
  * * PING: Shows the round-trip time when pinging a host
  * 
- * Sources: https://github.com/zoquero/simplebenchmark/
+ * Sources: https://github.com/zoquero/sbench/
  * 
  * @since 20161027
  * @author zoquero@gmail.com
@@ -26,7 +26,8 @@
 #include "sbenchfuncs.h"
 
 void usage() {
-  printf("Simple benchmarks, a first approach to performance measuring\n");
+  printf("Simple, tunable and lightweight benchmarking tool"
+         " for testing infrastructure\n");
   printf("Usage:\n");
   printf("sbench (-v) (-r) -t cpu        "
          "(-w warnThreshold -c critThreshold) "
@@ -83,7 +84,7 @@ void usage() {
   printf("      and to compare it with the reference:\n");
   printf("      file 'my_ref_file' located at %s :\n", CURL_REFS_FOLDER);
   printf("  sbench -t http_get -p my_ref_file,http://www.test.com/file\n\n");
-  printf("\nzoquero@gmail.com https://github.com/zoquero/simplebenchmark\n");
+  printf("\nzoquero@gmail.com https://github.com/zoquero/sbench\n");
   exit(EXIT_CODE_CRITICAL);
 }
 

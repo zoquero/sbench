@@ -18,7 +18,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}
 # BuildRoot: %{_tmppath}/%{name}-%{version}-build
 License:   GPLv3 (GNU General Public License v3)
 Group:     Applications/System
-URL:       https://github.com/zoquero/simplebenchmark/
+URL:       https://github.com/zoquero/sbench/
 Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 
 #########################################################################################
@@ -27,7 +27,7 @@ Packager:  Angel Galindo Munoz <zoquero@gmail.com>
 %if 0%{?ubuntu_version}
 
 Description: Simple benchmarks of CPU, memory, disk and network.
-More info can be found here: https://github.com/zoquero/simplebenchmark
+More info can be found here: https://github.com/zoquero/sbench
 BuildRequires: libcurl4-openssl-dev
 BuildRequires: liboping-dev
 Requires:      libcurl3
@@ -72,7 +72,7 @@ Requires:      libcurl4
 %description 
 
 Simple benchmarks of CPU, memory, disk and network.
-More info can be found here: https://github.com/zoquero/simplebenchmark
+More info can be found here: https://github.com/zoquero/sbench
 
 %prep
 %setup -q
