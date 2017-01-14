@@ -4,7 +4,7 @@ Simple, tunable and lightweight benchmarking tool written in C for testing CPU, 
 
 Angel Galindo ( zoquero@gmail.com ), november of 2016
 
-![Illustration](https://github.com/zoquero/sbench/blob/master/aux/logo.300x400.png)
+![Illustration](https://github.com/zoquero/sbench/blob/master/aux/logo.200x260.png)
 
 # Features
 
