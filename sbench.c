@@ -347,20 +347,20 @@ int main (int argc, char *argv[]) {
     double avgCalcsPerSecondPerCpu = times/r;
     if(nagiosPluginOutput) {
       if(avgCalcsPerSecondPerCpu >= crit) {
-        printf("CPU Critical = %.2f avg calcs/s software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        printf("CPU Critical = %.2f avg calcs/s per software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
         exit(EXIT_CODE_CRITICAL);
       }
       else if(avgCalcsPerSecondPerCpu >= warn) {
-        printf("CPU Warning = %.2f avg calcs/s software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        printf("CPU Warning = %.2f avg calcs/s per software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
         exit(EXIT_CODE_WARNING);
       }
       else {
-        printf("CPU OK = %.2f avg calcs/s software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
+        printf("CPU OK = %.2f avg calcs/s per software thread| avg_calcs_per_sec=%.2f\n", avgCalcsPerSecondPerCpu, avgCalcsPerSecondPerCpu);
         exit(EXIT_CODE_OK);
       }
     }
     else {
-      printf("%.2f avg calcs/s software thread\n", avgCalcsPerSecondPerCpu);
+      printf("%.2f avg calcs/s per software thread\n", avgCalcsPerSecondPerCpu);
       exit(EXIT_CODE_OK);
     }
   }
